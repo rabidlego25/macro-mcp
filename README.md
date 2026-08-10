@@ -59,6 +59,21 @@ metadata is never returned whole.
 | `fx_spot` | Daily ECB reference rate |
 | `fx_period_rate` | Average or end-of-period rate |
 
+## Tests
+
+```bash
+uv run pytest                      # offline, ~0.2s
+MACRO_MCP_LIVE=1 uv run pytest     # adds the network suite, ~25s
+```
+
+The offline suite replays saved responses in `tests/fixtures/`. Every case in it
+was a real failure, and each asserts a value rather than the absence of an
+exception, because these paths fail by returning a plausible wrong answer with a
+200 status rather than by raising.
+
+The live suite pins historical values, so a failure means a provider moved,
+renamed something, or revised a series.
+
 ## What it will not do for you
 
 The server surfaces these; it does not silently fix them.
