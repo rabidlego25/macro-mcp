@@ -135,9 +135,60 @@ exception, because these paths fail by returning a plausible wrong answer with a
 The live suite pins historical values, so a failure means a provider moved,
 renamed something, or revised a series.
 
+## Current problems and limitations
+
+Defects and constraints in this server, as distinct from properties of the data
+(below) and gaps in provider coverage (further below). Roughly worst first.
+
+- **Truncation can delete whole series, and then hide that it did.** `_pack`
+  keeps the most recent `limit` observations across the *whole* response, not
+  per series, so a request spanning two series can lose the older one entirely.
+  Worse, once it is gone the surviving series' key is invariant, so it is
+  hoisted into `key` and the response reads as though only that series was ever
+  asked for. `total` and `truncated` are the only clues and neither names what
+  was dropped. Narrow `start`/`end`, or raise `limit`, when querying several
+  series at once. This one is a bug rather than a trade-off.
+- **Observations are never cached, so every fetch pays full price.** That is
+  deliberate — see Caching — but it means repeated identical queries re-download
+  each time. It bites hardest on HKMA: a bound coarser than the endpoint's own
+  period cannot be sent to the service, so the adapter pulls the full history
+  (up to 6,302 rows) and filters locally, on every call.
+- **`sdmx1` cannot query SDMX 3.0 data.** It builds `?c=TIME_PERIOD` instead of
+  `c[TIME_PERIOD]=ge:…`, puts the source id where the agency belongs in the
+  path, and raises `TypeError: unhashable type: 'MemberValue'` when a key is
+  passed as a dict. Nothing hits this today because IMF is wired to its 2.1
+  endpoint, but the first genuinely 3.0-only provider will need an adapter.
+- **Point-in-time is IMF-only.** No other provider here republishes vintages, so
+  `compare_vintages` cannot answer the question anywhere else. It also spends its
+  request budget before it knows which vintages carry the key, so asking for five
+  can leave fewer readable; those appear under `no_data` rather than being topped
+  up, since the alternative is an unbounded number of calls to a slow service.
+- **HKMA has to be asked one request at a time.** It began returning 502 on every
+  path after eight parallel requests during this work and did not recover for
+  some minutes. `scripts/hkma_catalogue.py` paces itself at 4 requests a second
+  for that reason. Nothing enforces this at runtime.
+- **HKMA datasets are searchable only by slug.** It publishes no titles through
+  the API, so `find_dataflows` matches `hk-interbank-ir-daily` and not the words
+  a person would use for it. Its quarterly datasets also report the month the
+  quarter ended (`2024-03`), which is indistinguishable from a monthly period
+  when joined against another provider.
+- **The disk cache only grows.** Entries expire after a week but nothing prunes
+  or vacuums the SQLite file, which reached 96MB here across a few live runs.
+  Delete `$XDG_CACHE_HOME/macro-mcp` when it gets large.
+- **No retries on the request path.** `scripts/probe.py` retries once, because
+  recording a dropped connection as a missing endpoint is permanent; ordinary
+  `fetch_data` does not, so ISTAT's intermittent 500s reach the agent as errors.
+- **The non-SDMX adapters expose a single dimension.** Singapore and Hong Kong
+  return one wide table per dataset, so `SERIES` is the only thing to slice on.
+  There is no `REF_AREA` to filter, because there is no country dimension.
+- **`sdmx1` emits a `DeprecationWarning` from its own internals** (it passes a
+  deprecated `provider=` to itself). Left visible rather than filtered, since
+  suppressing it would also hide the same warning if it came from here.
+
 ## What it will not do for you
 
-The server surfaces these; it does not silently fix them.
+Properties of the data itself. The server surfaces these; it does not silently
+fix them.
 
 - Geo codelists mix aggregates and members (EU27 next to France). Summing both
   double-counts, and nothing errors.
@@ -151,6 +202,8 @@ The server surfaces these; it does not silently fix them.
   carry country and status; use `entity_ownership` to walk up the group.
 
 ## Known gaps
+
+What is not covered, and why.
 
 - **Asian national sources are mostly gated.** Headline macro for Asia is already
   covered by the international providers — BIS carries all of JP, CN, IN, KR, SG,
