@@ -67,6 +67,28 @@ def test_english_query_finds_a_french_dataflow():
     assert any(s["id"] == "CHOMAGE-TRIM-NATIONAL" for s in shown)
 
 
+def test_singstat_serves_singapore_cpi_on_the_shared_grammar():
+    """Not SDMX, but reached through the same tools and returning the same
+    shape, with periods rewritten so they join against the other providers."""
+    hits = api.dataflows("SINGSTAT", "consumer price index", 40)["shown"]
+    annual = next(h for h in hits if h["name"].endswith("Annual"))
+
+    codes = api.search_codes("SINGSTAT", annual["id"], "SERIES", "all items", 5)
+    assert codes["shown"][0]["name"] == "All Items"
+
+    out = api.fetch("SINGSTAT", annual["id"], {"SERIES": "1"}, "2020", "2024")
+    obs = dict(out["series"][0]["observations"])
+    assert obs["2024"] == pytest.approx(100.0)      # 2024 is the base year
+    assert obs["2020"] == pytest.approx(85.794, abs=0.01)
+
+
+def test_singstat_monthly_periods_come_back_in_sdmx_form():
+    """The API says "2024 Jan"; anything but 2024-01 fails to join."""
+    out = api.fetch("SINGSTAT", "M213751", {"SERIES": "1"}, "2024", "2024")
+    assert [p for p, _ in out["series"][0]["observations"]][:3] == [
+        "2024-01", "2024-02", "2024-03"]
+
+
 def test_oecd_flow_ids_carry_an_agency_prefix_and_still_describe():
     """sdmx1 puts the whole AGENCY:ID(VERSION) key in the id slot and builds a
     URL OECD rejects with a 400, which made all 1500-odd flows list-only."""

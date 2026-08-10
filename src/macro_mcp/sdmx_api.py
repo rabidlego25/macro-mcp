@@ -6,7 +6,12 @@ from functools import lru_cache
 import sdmx
 from sdmx.source import sources as _sources
 
-from . import bundesbank, cache
+from . import bundesbank, cache, singstat
+
+# Providers that do not speak SDMX at all. Each implements the same four calls
+# and returns the same response shapes, so they reach the agent through the
+# same tools rather than growing a parallel set.
+NATIVE = {"SINGSTAT": singstat}
 
 # sdmx1 ships hardcoded endpoints that drift as institutions move. These are
 # verified against the live services rather than the library's registry.
@@ -26,7 +31,7 @@ GROUPS = {
     "europe": ["ECB", "ESTAT3", "ESTAT", "ESTAT_COMEXT", "COMP", "EMPL", "GROW"],
     "national_eu": ["BBK", "INSEE", "ISTAT", "NBB", "NB", "LSD"],
     "americas": ["StatCan", "INEGI", "AR1", "UY110"],
-    "asia_pacific": ["ABS", "SPC"],
+    "asia_pacific": ["ABS", "SPC", "SINGSTAT"],
 }
 
 # Verified against the live services on 2026-08-10. Surfaced rather than hidden.
@@ -44,6 +49,7 @@ QUIRKS = {
     "NBB": "no dataflow endpoint; the flow id must be known in advance",
     "AR1": "static XML files, data messages only",
     "UNICEF": "structure-specific data; DSD must be fetched separately",
+    "SINGSTAT": "not SDMX; no catalogue listing, so find_dataflows needs a search term",
 }
 
 
@@ -80,6 +86,7 @@ SUPPORTS = {
     "UY110": (),
     "ABS": ("dataflow", "datastructure"),
     "SPC": ("dataflow", "datastructure"),
+    "SINGSTAT": ("dataflow", "datastructure"),
 }
 
 # Providers absent from SUPPORTS are assumed capable, so adding one to GROUPS
@@ -167,6 +174,8 @@ def providers() -> dict:
 
 
 def dataflows(provider: str, search: str | None = None, limit: int = 40) -> dict:
+    if provider in NATIVE:
+        return NATIVE[provider].dataflows(search, limit)
     if not _supports(provider, "dataflow"):
         return {"error": f"{provider} serves data but not dataflow metadata; "
                          "supply a known flow id to fetch_data directly"}
@@ -181,6 +190,8 @@ def dataflows(provider: str, search: str | None = None, limit: int = 40) -> dict
 
 def describe_flow(provider: str, flow: str, code_sample: int = 8) -> dict:
     """Dimensions with code counts and a sample. Full lists come from search_codes."""
+    if provider in NATIVE:
+        return NATIVE[provider].describe(flow)
     if not _supports(provider, "datastructure"):
         return {"error": f"{provider} does not publish structure metadata"}
     dims = []
@@ -208,6 +219,8 @@ def describe_flow(provider: str, flow: str, code_sample: int = 8) -> dict:
 def search_codes(provider: str, flow: str, dimension: str, query: str = "", limit: int = 30) -> dict:
     """Resolve a dimension value. Also the correct way to map a country onto a
     provider's REF_AREA codelist, which is provider-specific."""
+    if provider in NATIVE:
+        return NATIVE[provider].codes(flow, dimension, query, limit)
     for d in _dsd(provider, flow).dimensions.components:
         if d.id.upper() != dimension.upper():
             continue
@@ -263,6 +276,8 @@ def _pack(df, limit: int) -> dict:
 
 def fetch(provider: str, flow: str, key: dict, start: str | None = None,
           end: str | None = None, limit: int = 500) -> dict:
+    if provider in NATIVE:
+        return _pack(NATIVE[provider].frame(flow, key, start, end), limit)
     params = {}
     if start:
         params["startPeriod"] = start

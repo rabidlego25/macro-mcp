@@ -11,7 +11,11 @@ each provider codes countries differently. This takes a different route.
 
 - **One grammar, many providers.** SDMX is ISO 17369, and the BIS, ECB, IMF, OECD,
   Eurostat, World Bank, ILO and a dozen national offices all publish through it.
-  One set of tools reaches all of them.
+  One set of tools reaches all of them. Sources that do not speak SDMX are adapted
+  to the same grammar rather than given tools of their own: Singapore's Table
+  Builder is plain JSON, but a table becomes a dataflow, its rows become one
+  dimension's codes, and its periods are rewritten from `2024 Jan` to `2024-01`
+  so they join against everything else.
 - **LEI as the join key.** GLEIF covers 2.8M entities across 200+ jurisdictions,
   free, including the ownership graph. Tickers and CIKs do not travel.
 - **Rate conventions are explicit.** Converting flows at an end-of-period rate is
@@ -120,8 +124,17 @@ The server surfaces these; it does not silently fix them.
 
 ## Known gaps
 
-- **Asia is thin.** SDMX coverage is Europe, the Americas and Australia. Japan,
-  China, India, Korea and Singapore each need their own adapter.
+- **Asian national sources are mostly gated.** Headline macro for Asia is already
+  covered by the international providers — BIS carries all of JP, CN, IN, KR, SG,
+  HK, TW, TH, MY, ID, PH, VN, PK and BD for policy rates and property prices, and
+  the IMF, World Bank and ILO are comparably broad. What is missing is national
+  detail, and there the constraint bites: e-Stat (Japan), ECOS (Korea), KOSIS and
+  data.gov.in all require registration, so they cannot be included while the
+  project stays keyless. Singapore is in via `SINGSTAT`. Hong Kong's HKMA API is
+  free and keyless and was reachable during this work, but began returning 502 on
+  every path, so no adapter was written against it unverified. Malaysia's
+  OpenDOSM (`api.data.gov.my`) is keyless and works, but exposes no catalogue
+  endpoint, so dataset ids would have to be hard-coded.
 - **Endpoints drift.** `sdmx1` hardcodes base URLs that go stale as institutions
   move. `URL_FIXES` corrects ABS (the old host stopped resolving) and Lithuania
   (moved to an APEX path); `AGENCY` corrects INEGI, whose flows are filed under a

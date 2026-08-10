@@ -17,8 +17,18 @@ from pathlib import Path
 from sdmx.session import Session
 
 TTL = 7 * 24 * 3600
-EXPIRY = {"*/data/*": 0, "*": TTL}
+
+# Every path that carries observations rather than structure. `*/data/*` covers
+# SDMX REST; the others are the adapters, whose data paths are named differently
+# and would otherwise inherit the week-long metadata TTL.
+EXPIRY = {
+    "*/data/*": 0,
+    "*/tabledata/*": 0,          # SINGSTAT
+    "api.hkma.gov.hk/*": 0,      # HKMA serves data and metadata from one path
+    "*": TTL,
+}
 TIMEOUT = 180.0
+USER_AGENT = "macro-mcp/0.1 (+https://github.com/topics/sdmx)"
 
 
 def path() -> Path:
@@ -34,8 +44,15 @@ def session() -> Session:
     dataflow list would let them pass against a provider that has since moved.
     """
     if os.environ.get("MACRO_MCP_NO_CACHE") == "1":
-        return Session(timeout=TIMEOUT)
+        return _identify(Session(timeout=TIMEOUT))
     p = path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    return Session(timeout=TIMEOUT, backend="sqlite", cache_name=str(p),
-                   urls_expire_after=EXPIRY)
+    return _identify(Session(timeout=TIMEOUT, backend="sqlite", cache_name=str(p),
+                             urls_expire_after=EXPIRY))
+
+
+def _identify(s: Session) -> Session:
+    """SingStat rejects the default python-requests agent with a 403, and
+    naming the client is the courteous thing to do besides."""
+    s.headers["User-Agent"] = USER_AGENT
+    return s
