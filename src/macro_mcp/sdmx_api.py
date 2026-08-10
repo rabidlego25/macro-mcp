@@ -1,11 +1,12 @@
 """SDMX access across the free statistical providers that share ISO 17369."""
 
+import re
 from functools import lru_cache
 
 import sdmx
 from sdmx.source import sources as _sources
 
-from . import bundesbank
+from . import bundesbank, cache
 
 # sdmx1 ships hardcoded endpoints that drift as institutions move. These are
 # verified against the live services rather than the library's registry.
@@ -35,18 +36,60 @@ QUIRKS = {
     "UY110": "self-signed TLS certificate, so requests fail verification",
     "ISTAT": "intermittent 500s; retry before concluding it is down",
     "INEGI": "only republished OECD/SDG flows, not Mexico's own statistics",
-    "OECD": "slow (~11s) and flow ids carry an agency prefix, e.g. ESTAT:NAME(1.4)",
+    "OECD": "flow ids carry an agency prefix, e.g. ESTAT:SEEA_AEA_A(1.4); pass them back whole",
+    "ESTAT3": "reachable but returns an empty dataflow list; use ESTAT",
     "INSEE": "invalid concept identity references",
     "ESTAT": "large queries return a footer with a ZIP URL instead of data",
     "StatCan": "only /data/ over REST; structures are static files",
+    "NBB": "no dataflow endpoint; the flow id must be known in advance",
     "AR1": "static XML files, data messages only",
     "UNICEF": "structure-specific data; DSD must be fetched separately",
 }
 
 
+# What each provider actually serves, probed end to end through this module
+# rather than read from sdmx1's `source.supports`. That table is wrong in both
+# directions: it advertises metadata for BBK, whose every standard path 404s,
+# and it is static, so it cannot know that the adapter here makes BBK work.
+# Probed 2026-08-10; regenerate with `MACRO_MCP_NO_CACHE=1 uv run python -m scripts.probe`.
+SUPPORTS = {
+    "BIS": ("dataflow", "datastructure"),
+    "IMF_DATA3": ("dataflow", "datastructure"),
+    "OECD": ("dataflow", "datastructure"),
+    "WB_WDI": (),
+    "WB": ("dataflow", "datastructure"),
+    "ILO": ("dataflow", "datastructure"),
+    "UNSD": ("dataflow", "datastructure"),
+    "UNICEF": ("dataflow", "datastructure"),
+    "ECB": ("dataflow", "datastructure"),
+    "ESTAT3": (),
+    "ESTAT": ("dataflow", "datastructure"),
+    "ESTAT_COMEXT": ("dataflow", "datastructure"),
+    "COMP": (),
+    "EMPL": ("dataflow", "datastructure"),
+    "GROW": ("dataflow", "datastructure"),
+    "BBK": ("dataflow", "datastructure"),
+    "INSEE": ("dataflow", "datastructure"),
+    "ISTAT": ("dataflow", "datastructure"),
+    "NBB": (),
+    "NB": ("dataflow", "datastructure"),
+    "LSD": ("dataflow", "datastructure"),
+    "StatCan": (),
+    "INEGI": ("dataflow", "datastructure"),
+    "AR1": (),
+    "UY110": (),
+    "ABS": ("dataflow", "datastructure"),
+    "SPC": ("dataflow", "datastructure"),
+}
+
+# Providers absent from SUPPORTS are assumed capable, so adding one to GROUPS
+# does not require a probe first.
+DEFAULT_SUPPORT = ("dataflow", "datastructure")
+
+
 @lru_cache(maxsize=32)
 def _client(provider: str) -> sdmx.Client:
-    return sdmx.Client(provider)
+    return sdmx.Client(provider, session=cache.session())
 
 
 @lru_cache(maxsize=32)
@@ -57,12 +100,20 @@ def _flows(provider: str):
     return _client(provider).dataflow(**kw).dataflow
 
 
+# Flow ids may carry SDMX's AGENCY:ID(VERSION) notation — OECD's all do. sdmx1
+# puts the whole string in the id slot and builds a URL the service rejects, so
+# the parts are split out and passed separately.
+_FLOW_KEY = re.compile(r"(?:([^:]+):)?([^()]+)(?:\((.+)\))?")
+
+
 @lru_cache(maxsize=64)
 def _dsd(provider: str, flow: str):
     if provider == "BBK":
         return bundesbank.dsd(flow)
-    kw = {"agency_id": AGENCY[provider]} if provider in AGENCY else {}
-    return _client(provider).dataflow(flow, **kw).structure[0]
+    agency, flow_id, version = _FLOW_KEY.fullmatch(flow).groups()
+    kw = {"agency_id": agency or AGENCY.get(provider), "version": version}
+    return _client(provider).dataflow(
+        flow_id, **{k: v for k, v in kw.items() if v}).structure[0]
 
 
 def _codes(dim, provider: str | None = None):
@@ -99,8 +150,7 @@ def _matches(q: str, ident: str, names: dict) -> bool:
 
 
 def _supports(provider: str, resource: str) -> bool:
-    return any(str(k).endswith(f".{resource}") and v
-               for k, v in _client(provider).source.supports.items())
+    return resource in SUPPORTS.get(provider, DEFAULT_SUPPORT)
 
 
 def _entry(p: str) -> dict:

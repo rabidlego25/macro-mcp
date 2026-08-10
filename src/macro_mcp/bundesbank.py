@@ -10,8 +10,10 @@ import io
 import re
 from functools import lru_cache
 
-import httpx
+import requests
 import sdmx
+
+from . import cache
 
 BASE = "https://api.statistiken.bundesbank.de/rest"
 
@@ -32,7 +34,10 @@ def _repair(raw: bytes) -> bytes:
 
 
 def _get(path: str, params: dict | None = None):
-    r = httpx.get(f"{BASE}/{path}", params=params or {}, timeout=180)
+    # sdmx.Session keeps `timeout` for its own Client to read, so a bare get()
+    # would otherwise have none.
+    r = cache.session().get(f"{BASE}/{path}", params=params or {},
+                            timeout=cache.TIMEOUT)
     r.raise_for_status()
     return sdmx.read_sdmx(io.BytesIO(_repair(r.content)))
 
@@ -54,7 +59,7 @@ def codelist(dim_id: str):
     resources named CL_<dimension>."""
     try:
         return _get(f"metadata/codelist/BBK/CL_{dim_id}").codelist[f"CL_{dim_id}"]
-    except httpx.HTTPStatusError:
+    except requests.HTTPError:
         return None
 
 

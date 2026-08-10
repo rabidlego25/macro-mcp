@@ -67,12 +67,23 @@ def test_english_query_finds_a_french_dataflow():
     assert any(s["id"] == "CHOMAGE-TRIM-NATIONAL" for s in shown)
 
 
-@pytest.mark.parametrize("provider,flow", [
-    ("ABS", None),        # host moved; URL_FIXES
-    ("LSD", None),        # path moved; URL_FIXES
-    ("INEGI", None),      # agency id differs; AGENCY
-    ("BBK", None),        # bespoke adapter
+def test_oecd_flow_ids_carry_an_agency_prefix_and_still_describe():
+    """sdmx1 puts the whole AGENCY:ID(VERSION) key in the id slot and builds a
+    URL OECD rejects with a 400, which made all 1500-odd flows list-only."""
+    flow = api.dataflows("OECD", "air emission", 5)["shown"][0]["id"]
+    assert ":" in flow and "(" in flow
+    dims = api.describe_flow("OECD", flow)["dimensions"]
+    assert [d["id"] for d in dims], dims
+
+
+@pytest.mark.parametrize("provider", [
+    "ABS",        # host moved; URL_FIXES
+    "LSD",        # path moved; URL_FIXES
+    "INEGI",      # agency id differs; AGENCY
+    "BBK",        # bespoke adapter
 ])
-def test_repaired_providers_still_list_dataflows(provider, flow):
+def test_repaired_providers_still_list_dataflows(provider, uncached):
+    """The point is to catch endpoint drift, so this must reach the network.
+    A cached dataflow list would pass long after the provider had moved."""
     out = api.dataflows(provider, "", 1)
     assert out.get("total", 0) > 0, out

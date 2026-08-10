@@ -78,11 +78,22 @@ yields goes from 173KB to 6KB.
 inferred from a `total` that does not match. Truncation keeps the most recent
 observations. Periods with no value are omitted and counted under `empty`.
 
+## Caching
+
+Metadata is cached to disk under `$XDG_CACHE_HOME/macro-mcp` for a week.
+Structures are large and slow to build — ISTAT takes 29s cold and 1.5s warm,
+Eurostat 52s and 11s — and providers republish them rarely. In-process
+memoisation alone threw all of that away when the server exited.
+
+Observations are never cached. `*/data/*` is pinned to expire immediately on
+every provider, because stale metadata is an annoyance and a stale exchange
+rate is a wrong answer. Set `MACRO_MCP_NO_CACHE=1` to bypass entirely.
+
 ## Tests
 
 ```bash
 uv run pytest                      # offline, ~0.2s
-MACRO_MCP_LIVE=1 uv run pytest     # adds the network suite, ~25s
+MACRO_MCP_LIVE=1 uv run pytest     # adds the network suite, ~30s
 ```
 
 The offline suite replays saved responses in `tests/fixtures/`. Every case in it
@@ -120,7 +131,11 @@ The server surfaces these; it does not silently fix them.
   codelists separately from the DSD, and returns 100MB+ for an unpinned query.
 - **Genuinely down:** DG COMP 404s on every path and Uruguay serves a self-signed
   certificate. ISTAT returns intermittent 500s. See `QUIRKS`.
-- **WB_WDI and StatCan** serve data but not dataflow metadata, so flow ids must be
-  known in advance. `list_providers` flags this.
+- **WB_WDI, StatCan, NBB and AR1** serve data but not dataflow metadata, so flow
+  ids must be known in advance. `list_providers` flags this. Which providers
+  serve what is measured, not assumed: `sdmx1`'s own capability table is a static
+  declaration that disagrees with the live services in both directions. Regenerate
+  the measured one with `MACRO_MCP_NO_CACHE=1 uv run python -m scripts.probe`,
+  which retries once so a dropped connection is not recorded as a missing endpoint.
 - **Filings** are out of scope. There is no free global equivalent until ESAP
   opens its API in July 2027.
