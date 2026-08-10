@@ -5,6 +5,8 @@ from functools import lru_cache
 import sdmx
 from sdmx.source import sources as _sources
 
+from . import bundesbank
+
 # sdmx1 ships hardcoded endpoints that drift as institutions move. These are
 # verified against the live services rather than the library's registry.
 URL_FIXES = {
@@ -28,7 +30,7 @@ GROUPS = {
 
 # Verified against the live services on 2026-08-10. Surfaced rather than hidden.
 QUIRKS = {
-    "BBK": "unreachable: every REST path 404s, service appears restructured",
+    "BBK": "non-standard paths and separate codelists; data needs a pinned key",
     "COMP": "unreachable: webgate path 404s",
     "UY110": "self-signed TLS certificate, so requests fail verification",
     "ISTAT": "intermittent 500s; retry before concluding it is down",
@@ -49,27 +51,41 @@ def _client(provider: str) -> sdmx.Client:
 
 @lru_cache(maxsize=32)
 def _flows(provider: str):
+    if provider == "BBK":
+        return bundesbank.flows()
     kw = {"agency_id": AGENCY[provider]} if provider in AGENCY else {}
     return _client(provider).dataflow(**kw).dataflow
 
 
 @lru_cache(maxsize=64)
 def _dsd(provider: str, flow: str):
+    if provider == "BBK":
+        return bundesbank.dsd(flow)
     kw = {"agency_id": AGENCY[provider]} if provider in AGENCY else {}
     return _client(provider).dataflow(flow, **kw).structure[0]
 
 
-def _codes(dim):
+def _codes(dim, provider: str | None = None):
     rep = getattr(dim, "local_representation", None)
-    return getattr(rep, "enumerated", None) if rep else None
+    cl = getattr(rep, "enumerated", None) if rep else None
+    # BBK inlines an empty codelist and publishes the real one separately.
+    if not cl and provider == "BBK":
+        return bundesbank.codelist(dim.id)
+    return cl
 
 
 def _names(obj) -> dict:
     """SDMX names are multilingual and providers ship English alongside the native
-    language in one response, so nothing needs translating."""
+    language in one response, so nothing needs translating.
+
+    Empty localizations are dropped; BBK publishes a null English name on some
+    flows, which would otherwise mask the German one.
+    """
     name = getattr(obj, "name", None)
     loc = getattr(name, "localizations", None)
-    return dict(loc) if loc else {"": str(name or "")}
+    if loc:
+        return {k: v for k, v in loc.items() if v}
+    return {"": str(name)} if name else {}
 
 
 def _label(names: dict) -> str:
@@ -119,7 +135,7 @@ def describe_flow(provider: str, flow: str, code_sample: int = 8) -> dict:
         return {"error": f"{provider} does not publish structure metadata"}
     dims = []
     for d in _dsd(provider, flow).dimensions.components:
-        cl = _codes(d)
+        cl = _codes(d, provider)
         n = len(cl) if cl is not None else 0
         names = [_names(c) for c in cl] if n else []
         dim = {
@@ -145,7 +161,7 @@ def search_codes(provider: str, flow: str, dimension: str, query: str = "", limi
     for d in _dsd(provider, flow).dimensions.components:
         if d.id.upper() != dimension.upper():
             continue
-        cl = _codes(d)
+        cl = _codes(d, provider)
         if cl is None:
             return {"error": f"{dimension} has no codelist"}
         q = query.lower()
@@ -162,6 +178,11 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
         params["startPeriod"] = start
     if end:
         params["endPeriod"] = end
+    if provider == "BBK":
+        msg = bundesbank.data(flow, key, params)
+        df = sdmx.to_pandas(msg).reset_index()
+        df.columns = [*df.columns[:-1], "value"]
+        return {"total": len(df), "records": df.head(limit).to_dict("records")}
     try:
         msg = _client(provider).data(flow, key=key, params=params)
     except sdmx.exceptions.XMLParseError:

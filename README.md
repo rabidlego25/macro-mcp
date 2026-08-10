@@ -81,8 +81,11 @@ The server surfaces these; it does not silently fix them.
   move. `URL_FIXES` corrects ABS (the old host stopped resolving) and Lithuania
   (moved to an APEX path); `AGENCY` corrects INEGI, whose flows are filed under a
   different agency id. Re-verify these if a provider starts failing.
-- **Genuinely down:** Bundesbank and DG COMP 404 on every path, and Uruguay serves
-  a self-signed certificate. ISTAT returns intermittent 500s. See `QUIRKS`.
+- **Bundesbank needs its own adapter** (`bundesbank.py`). It serves valid SDMX-ML
+  from non-standard paths, writes URNs missing their class segment, publishes
+  codelists separately from the DSD, and returns 100MB+ for an unpinned query.
+- **Genuinely down:** DG COMP 404s on every path and Uruguay serves a self-signed
+  certificate. ISTAT returns intermittent 500s. See `QUIRKS`.
 - **WB_WDI and StatCan** serve data but not dataflow metadata, so flow ids must be
   known in advance. `list_providers` flags this.
 - **Filings** are out of scope. There is no free global equivalent until ESAP
