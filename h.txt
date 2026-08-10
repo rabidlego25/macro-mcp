@@ -1,0 +1,23 @@
+HTTP/2 200 
+server: nginx
+date: Mon, 10 Aug 2026 21:44:33 GMT
+content-type: application/json
+content-length: 725
+vary: Accept-Encoding
+cache-control: max-age=0, private, must-revalidate
+etag: W/"82bcc08debf3bb6f51a52ef871fe7e0a"
+link: <https://git.nomics.world/api/v4/projects/197/repository/commits?id=197&order=default&page=2&per_page=1&trailers=false>; rel="next", <https://git.nomics.world/api/v4/projects/197/repository/commits?id=197&order=default&page=1&per_page=1&trailers=false>; rel="first"
+nel: {"max_age": 0}
+vary: Origin
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+x-gitlab-meta: {"correlation_id":"01KZPT4VVM57BY6P2E8VA48Q1S","version":"1"}
+x-next-page: 2
+x-page: 1
+x-per-page: 1
+x-prev-page: 
+x-request-id: 01KZPT4VVM57BY6P2E8VA48Q1S
+x-runtime: 0.056965
+strict-transport-security: max-age=63072000
+referrer-policy: strict-origin-when-cross-origin
+

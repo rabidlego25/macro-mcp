@@ -9,7 +9,8 @@ work," it says so.
 
 Public macro data is free, fragmented and silently overwritten; the durable
 business is not access to it but the **point-in-time record and correctness
-layer** that agents need in order to be trusted with it.
+layer** that agents need in order to be trusted with it. The point-in-time record
+already exists publicly and is unusable — making it usable is the opening.
 
 ## Honest starting position
 
@@ -25,30 +26,44 @@ strategic error available here.
 
 ## The insight the company rests on
 
-**Statistical agencies overwrite history in place, and the past is not
-recoverable.** When Eurostat revises 2024 German GDP, the previous value is gone
-from the API. There is no way to buy it back later, and no competitor can
-retroactively acquire it.
+> **Corrected 2026-08-10 after testing it.** The first version of this document
+> claimed the vintage archive was an unoccupied, unbuyable moat. That was wrong,
+> and the evidence is in the research log at the end. The corrected version is
+> below and it is weaker, but it also removes the plan's worst structural
+> problem.
 
-So a system that snapshots public statistical data daily accrues an asset that:
+**Statistical agencies overwrite history in place.** When Eurostat revises 2024
+German GDP, the previous value is gone from the API. Point-in-time data therefore
+has to be captured as it goes; it cannot be reconstructed afterwards.
 
-- costs almost nothing to build (storage, plus a scheduler)
-- compounds automatically with time, with no additional insight or effort
-- cannot be replicated by a better-funded competitor entering in year three
-- gets more valuable exactly as agent-driven backtesting grows
+That much is true. What is *not* true is that nobody has been capturing it.
+DBnomics has been committing raw provider data to ~96 public git repositories
+since 2017, several times a day on active ones. That is an international vintage
+archive, it is public, and anyone can clone it.
 
-This is the only defensible thing in the vicinity. Everything else here — the
-adapters, the compaction, the quirk tables — is re-derivable by a competent
-engineer in a week, and increasingly by a model in an hour.
+So the moat is not possession of the data. **The moat is that the data is
+currently unusable.** It sits as nine years of heterogeneous provider-format
+files — SDMX-ML, TSV, bespoke JSON, one shape per provider — in git repos with
+no query layer, no harmonization, and no exposure through DBnomics' own API.
+Turning that into a queryable point-in-time service is substantial engineering,
+and it is the same harmonization work that makes the live product good.
 
-**The single most important consequence: start capturing now.** Before the
-product is designed, before the company exists, before anyone is hired. Every
-day of delay is a day of archive that can never be created. This is cheap enough
-to do as a cron job and irreversible enough to be the difference between a
-defensible company and a wrapper.
+This is a weaker moat than exclusive data. It is an execution and product moat,
+replicable by anyone willing to do the same work. It has to be paired with speed,
+distribution and the guardrail layer to matter.
 
-FRED/ALFRED proves the demand exists — economists have used it for two decades —
-and proves nobody has done it outside the US.
+**But it removes the plan's worst problem.** A capture-from-today strategy has an
+asset worth little at month 18, exactly when a Series A conversation happens.
+Bootstrapping from public history means launching with nine years of revisions on
+day one. That is the difference between promising a moat and demonstrating one.
+
+**Still worth running your own capture, from now.** DBnomics does not cover
+everything (HKMA and SingStat are absent), some repos stall — Eurostat's has been
+untouched since January 2026 — and depending on a third party for the core asset
+is not a strategy. Bootstrap from theirs; do not rely on theirs.
+
+FRED/ALFRED proves the demand exists — economists have used it for two decades.
+It does not, as previously claimed here, prove nobody has done it internationally.
 
 ## Problem
 
@@ -109,12 +124,18 @@ data a decision was made on. Nobody in this category offers that for agents.
 
 | Candidate | Real? | Notes |
 |---|---|---|
-| Vintage archive | **Yes** | Compounds daily, cannot be bought retroactively. The only strong one. |
-| Provider quirk knowledge | Weak | ~200 lines of tables. A week of work to re-derive. |
-| Harmonization/mapping layer | Medium | Real effort, accumulates, but replicable with money. |
+| Exclusive vintage data | **No** | Publicly archived since 2017. Anyone can clone it. |
+| Usable vintage data | Medium | Nine years of heterogeneous files with no query layer. Hard work, not secret work. |
+| Harmonization/mapping layer | Medium | Real effort, accumulates, replicable with money. Compounds with the archive. |
+| Provider quirk knowledge | Weak | ~200 lines of tables. A week to re-derive. |
 | Open-source distribution | Medium | Mindshare and trust, not defensibility. |
 | Brand as "the correct one" | Medium | Only if the evals are public and it actually is. |
 | The code itself | **No** | Thin layer over open-source libraries. |
+
+No single row here is strong. The honest read is that defensibility comes from
+stacking a medium data-usability moat on a medium harmonization moat and moving
+faster than a project with no commercial motive. That is a real but ordinary
+startup position, and it should be described that way rather than dressed up.
 
 ## Market
 
@@ -170,9 +191,15 @@ are the better first cohort.
   not move quickly on agent-native interfaces, but can.
 - **FRED/ALFRED** — free, excellent, US-only. The proof of demand and the model
   to generalize internationally.
-- **Trading Economics, DBnomics** — closest free/cheap analogues. **[verify]**
-  whether DBnomics keeps vintages; if it does, that materially weakens the moat
-  and must be known before raising.
+- **DBnomics** — the most important competitor, and previously underrated here.
+  Public, free, ~96 providers, and quietly the largest international vintage
+  archive that exists (see research log). Backed by CEPREMAP, French public
+  research **[verify]**, which suggests no commercial motive — but that cuts both
+  ways. Either they will not productize this and the opening is real, or nobody
+  has asked them to because the demand is not there. **Resolve this by talking to
+  users, not by reasoning about it.** They are also the natural acquirer,
+  partner, or the party who kills the idea by shipping a vintage API first.
+- **Trading Economics** — closest commercial cheap analogue. **[verify]**.
 - **The providers themselves** — could publish vintages at any time. IMF already
   does, partially. This is a real and underrated threat.
 
@@ -182,7 +209,12 @@ are the better first cohort.
 - Fix the truncation bug — silent data loss in the core response path.
 - Per-host rate limiting and backoff. A shared User-Agent across many users is a
   single point of failure; one provider blocking it breaks everyone at once.
-- **Start the daily snapshot.** Cheap, boring, and the clock does not restart.
+- **Start the daily snapshot** for providers DBnomics does not cover, and where
+  its repos have stalled. Cheap, boring, and the clock does not restart.
+- **Clone the DBnomics history** before doing anything else with it — it is a
+  third party's infrastructure and could go private, be pruned, or stop. Cloning
+  is free and reversible; losing it is not. Resolve the licence question in
+  parallel, but do not let that block the clone of public data.
 
 **Weeks 1–6**
 - Evals: 20 real questions, agent-run, every dead end logged and fixed. Publish
@@ -206,13 +238,20 @@ are the better first cohort.
 - **It is a feature, not a company.** An incumbent or a model provider ships
   macro connectors and the wedge closes. Mitigation: the archive, which they
   cannot backfill either.
-- **Data licensing.** The business redistributes others' data. IMF, World Bank
-  and Eurostat are generally permissive with attribution; some national offices
-  are not, and a stored vintage archive is legally different from proxying a live
-  request. **This is a genuine diligence item and could invalidate the moat for
-  specific providers. Resolve it before hosting anything.**
-- **Someone already keeps vintages internationally.** Would substantially
-  devalue the core idea. **[verify]** first, cheaply.
+- **Data licensing, now the largest unresolved risk.** The business redistributes
+  others' data. IMF, World Bank and Eurostat are generally permissive with
+  attribution; some national offices are not, and a stored vintage archive is
+  legally different from proxying a live request. The DBnomics source repos carry
+  **no declared licence** and the project's own legal page returns a 400, so
+  reuse rights there are genuinely unclear and cannot be assumed. **Resolve
+  before hosting anything, per provider and for DBnomics separately.**
+- **Someone already keeps vintages internationally — confirmed, they do.** This
+  was the cheapest question in the first draft and it came back against the
+  thesis. The idea survives in weakened form (see the corrected insight), but
+  anyone diligencing this will find DBnomics within an hour. Lead with it.
+- **DBnomics productizes vintages themselves.** They have the data, nine years of
+  head start, and public-research funding. The counter is speed, agent-native
+  design and a guardrail layer they show no sign of wanting to build.
 - **Not venture-scale.** Plausibly a very good $3–8M ARR business, which is a
   fine life and a poor venture outcome. Taking money forecloses that path.
 - **Maintenance drag.** Hard-coded catalogues, corrected base URLs and a snapshot
@@ -242,10 +281,45 @@ it — it will surface in diligence, and it is more persuasive said first.
 
 ## Open questions to resolve before raising
 
-1. Does DBnomics, or anyone, already keep international vintages? *(Cheapest to
-   check, largest impact on the thesis.)*
-2. What do provider licences permit for storage and redistribution, per provider?
+1. ~~Does anyone already keep international vintages?~~ **Answered: yes, DBnomics
+   does. See research log.**
+2. What do provider licences permit for storage and redistribution, per provider —
+   and what, if anything, do the DBnomics repos permit? Now the top risk.
 3. Do the evals pass? Can an agent actually answer 20 real questions end to end?
-4. Who felt this pain enough to pay — and is that a list of 200 firms or 20,000?
-5. Adoption or revenue? It changes what gets built first, and the answer should
+4. Why has DBnomics not productized nine years of vintages — no commercial motive,
+   or no demand? Distinguishing these two is the most valuable thing anyone can
+   learn about this market, and it can only be learned from users.
+5. Who felt this pain enough to pay — and is that a list of 200 firms or 20,000?
+6. Adoption or revenue? It changes what gets built first, and the answer should
    be decided rather than deferred.
+
+## Research log
+
+Findings recorded with method and date so they can be re-run and challenged.
+Everything below was measured, not recalled.
+
+**2026-08-10 — Does anyone keep international vintages? Yes.**
+
+- DBnomics stores raw provider data in ~96 public git repositories at
+  `git.nomics.world/dbnomics-source-data`, oldest created 2017-04-12.
+- Commits are titled "Download data from provider" — these are periodic snapshots
+  of source-format data, i.e. vintages.
+- Cadence on an active repo (INSEE, project 45): 100 commits across 26 distinct
+  days, 2026-07-16 to 2026-08-10. Roughly four a day, daily.
+- 52 of 96 repos show activity in 2026; 12 last active in 2025, the rest older.
+  Eurostat's repo (project 197) has been untouched since 2026-01-20, so coverage
+  is uneven and cannot be assumed live.
+- DBnomics' own API exposes no vintage or revision fields. WEO appears as dated
+  editions (`WEO:2008-04` onward) only because IMF versions that publication
+  itself — not because the API surfaces vintages generally.
+- No LICENSE file in the source repos; `db.nomics.world/legal` returns 400.
+
+*Conclusion:* the data exists publicly and is not usable as data. That is the
+opening, and it is a narrower one than this document originally claimed.
+
+**Still to run**
+
+- Clone one provider's full history and measure: how many series were revised,
+  how often, and by how much. This is the number that tells you whether the
+  archive is worth anything to a customer, and it is directly measurable.
+- The same for a provider DBnomics does not cover, to size the gap.
