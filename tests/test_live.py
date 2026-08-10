@@ -109,3 +109,21 @@ def test_repaired_providers_still_list_dataflows(provider, uncached):
     A cached dataflow list would pass long after the provider had moved."""
     out = api.dataflows(provider, "", 1)
     assert out.get("total", 0) > 0, out
+
+
+def test_imf_codes_resolve_through_the_concept_not_the_dimension():
+    """IMF's dimensions declare no local representation, so a codelist is only
+    reachable via the concept each one identifies. Without that, every dimension
+    reported zero codes and search_codes could match nothing."""
+    dims = {d["id"]: d["codes"] for d in api.describe_flow("IMF_DATA", "CPI")["dimensions"]}
+    assert dims["COUNTRY"] > 200 and dims["INDEX_TYPE"] > 10
+    assert api.search_codes("IMF_DATA", "CPI", "COUNTRY", "japan", 3)["shown"][0]["id"] == "JPN"
+
+
+def test_imf_japan_cpi_arrives_with_joinable_periods():
+    key = {"COUNTRY": "JPN", "INDEX_TYPE": "CPI", "COICOP_1999": "_T",
+           "TYPE_OF_TRANSFORMATION": "IX", "FREQUENCY": "M"}
+    out = api.fetch("IMF_DATA", "CPI", key, "2024-01", "2024-03")
+    assert out["series"][0]["observations"] == [["2024-01", pytest.approx(106.9)],
+                                                ["2024-02", pytest.approx(106.9)],
+                                                ["2024-03", pytest.approx(107.2)]]

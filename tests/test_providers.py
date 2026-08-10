@@ -144,3 +144,15 @@ def test_providers_without_metadata_are_flagged_to_the_agent():
     entries = {e["id"]: e for group in api.providers().values() for e in group}
     assert "note" in entries["WB_WDI"]
     assert "note" not in entries["BIS"]
+
+
+def test_a_structure_with_no_dimensions_is_an_error_not_an_answer(monkeypatch):
+    """IMF used to land here: a DSD that parsed cleanly and was empty, so
+    describe_flow reported a flow with no dimensions and no error. An
+    unqueryable structure has to say so rather than defer the failure to
+    fetch_data."""
+    class Empty:
+        dimensions = type("D", (), {"components": []})()
+
+    monkeypatch.setattr(api, "_dsd", lambda p, f: Empty())
+    assert "error" in api.describe_flow("BIS", "WS_CBPOL")

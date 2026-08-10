@@ -1,0 +1,1 @@
+{"status":500,"code":50000,"message":"Internal Server Error","devMessage":null,"timestamp":"2026-08-10T20:36:04.631246Z","correlationId":"4e2c00080e7478a1deac1a08f71549a4","path":"/api/v1/workspaces/default:integration/registry/sdmx/2.1/data/CPI/JPN.PCPI._T.IX.M","details":{}}

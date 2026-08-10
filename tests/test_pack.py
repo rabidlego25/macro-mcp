@@ -83,3 +83,17 @@ def test_packing_a_wide_key_is_an_order_of_magnitude_smaller():
     flat = len(json.dumps({"total": len(df), "records": df.to_dict("records")}))
     packed = len(json.dumps(_pack(df, 500)))
     assert packed * 10 < flat, f"{flat} -> {packed}"
+
+
+def test_imf_month_notation_is_rewritten_so_periods_join():
+    """IMF writes 2024-M01. It parses and sorts perfectly well, which is the
+    problem: a series in its own notation joins against nothing."""
+    out = _pack(frame([("M", "2024-M01", 1.0), ("M", "2024-M02", 2.0)]), 500)
+    assert [p for p, _ in out["series"][0]["observations"]] == ["2024-01", "2024-02"]
+    assert out["range"] == ["2024-01", "2024-02"]
+
+
+def test_annual_and_quarterly_periods_are_left_alone():
+    """Only the month infix is non-standard; rewriting more would corrupt."""
+    out = _pack(frame([("Q", "2024-Q1", 1.0), ("Q", "2024-Q2", 2.0)]), 500)
+    assert [p for p, _ in out["series"][0]["observations"]] == ["2024-Q1", "2024-Q2"]

@@ -142,6 +142,13 @@ The server surfaces these; it does not silently fix them.
   every path, so no adapter was written against it unverified. Malaysia's
   OpenDOSM (`api.data.gov.my`) is keyless and works, but exposes no catalogue
   endpoint, so dataset ids would have to be hard-coded.
+- **IMF publishes three endpoints and only one serves data.** `sdmx1` ships
+  `IMF` (sdmxcentral, which answers 501 on data), `IMF_DATA` (SDMX 2.1) and
+  `IMF_DATA3` (SDMX 3.0). The 3.0 service returns structures but a header and one
+  empty row for every flow, so `IMF_DATA` is the one wired up. Its dimensions
+  carry no local representation — codes are reachable only through the concept
+  each dimension identifies — and it writes monthly periods as `2024-M01`, which
+  is rewritten to `2024-01` so the series joins against everything else.
 - **Endpoints drift.** `sdmx1` hardcodes base URLs that go stale as institutions
   move. `URL_FIXES` corrects ABS (the old host stopped resolving) and Lithuania
   (moved to an APEX path); `AGENCY` corrects INEGI, whose flows are filed under a
