@@ -3,14 +3,16 @@
 Tickers collide across venues and CIK is US-only, so entities resolve here first.
 """
 
-import httpx
+import requests
+
+from . import cache
 
 BASE = "https://api.gleif.org/api/v1"
 
 
 def _get(path: str, **params):
-    r = httpx.get(f"{BASE}/{path}", params=params, timeout=30,
-                  headers={"Accept": "application/vnd.api+json"})
+    r = cache.session().get(f"{BASE}/{path}", params=params, timeout=cache.TIMEOUT,
+                            headers={"Accept": "application/vnd.api+json"})
     r.raise_for_status()
     return r.json()
 
@@ -58,11 +60,11 @@ def ownership(lei: str) -> dict:
                       ("ultimate_parent", "ultimate-parent")]:
         try:
             out[rel] = _summary(_get(f"lei-records/{lei}/{path}")["data"])
-        except httpx.HTTPStatusError:
+        except requests.HTTPError:
             out[rel] = None
     try:
         kids = _get(f"lei-records/{lei}/direct-children", **{"page[size]": 50})
         out["direct_children"] = [_summary(r) for r in kids["data"]]
-    except httpx.HTTPStatusError:
+    except requests.HTTPError:
         out["direct_children"] = []
     return out

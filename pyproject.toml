@@ -8,8 +8,11 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "httpx>=0.28.1",
     "mcp[cli]>=2.0.0",
+    # Imported directly, not just pulled in by sdmx1. Left undeclared, the
+    # install works until one of sdmx1's own pins moves.
+    "pandas>=2.0",
+    "requests>=2.32",
     "requests-cache>=1.3.3",
     "sdmx1>=2.27.0",
 ]

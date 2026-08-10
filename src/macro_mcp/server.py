@@ -7,7 +7,7 @@ hundreds of entries.
 
 from mcp.server import MCPServer
 
-from . import entities, fx, sdmx_api
+from . import entities, fx, sdmx_api, vintages
 
 INSTRUCTIONS = """Free international macro, entity and FX data. No API keys.
 
@@ -24,6 +24,8 @@ Cross-country comparisons break in predictable ways. Check each before reporting
 - Seasonal adjustment differs (X-13 in the US, TRAMO/SEATS across much of Europe).
 - Most providers publish revisions without point-in-time access, so historical
   values are as-revised, not as-known. Say so when it affects the conclusion.
+  IMF is the exception: list_vintages and compare_vintages read what a figure
+  said when it was published. Use them before claiming what was known at a date.
 
 Search in English regardless of the provider's language. Names are matched across
 every localization the provider publishes and returned in English where it exists,
@@ -75,6 +77,26 @@ def fetch_data(provider: str, flow: str, key: dict, start: str = "", end: str = 
     "range" is the period span actually returned; periods with no value are
     omitted and counted under "empty"."""
     return sdmx_api.fetch(provider, flow, key, start or None, end or None, limit)
+
+
+@mcp.tool()
+def list_vintages(provider: str, flow: str) -> dict:
+    """Vintages of a dataflow, oldest first, with the current flow last.
+
+    A vintage is the dataset as it stood when published, so it shows what was
+    known at the time rather than what the figure was later revised to."""
+    return vintages.available(provider, flow)
+
+
+@mcp.tool()
+def compare_vintages(provider: str, flow: str, key: dict, start: str = "",
+                     end: str = "", limit: int = 5) -> dict:
+    """One key read across several vintages, with the revisions between them.
+
+    "revisions" lists each period whose value changed and between which two
+    vintages. Vintages that do not carry the key at all are listed under
+    "no_data": coverage varies between them, not only values."""
+    return vintages.compare(provider, flow, key, start or None, end or None, limit)
 
 
 @mcp.tool()

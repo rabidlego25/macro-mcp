@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from macro_mcp import entities, fx, sdmx_api as api
+from macro_mcp import cache, entities, fx, hkma, sdmx_api as api, vintages
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MACRO_MCP_LIVE") != "1",
@@ -127,3 +127,68 @@ def test_imf_japan_cpi_arrives_with_joinable_periods():
     assert out["series"][0]["observations"] == [["2024-01", pytest.approx(106.9)],
                                                 ["2024-02", pytest.approx(106.9)],
                                                 ["2024-03", pytest.approx(107.2)]]
+
+
+def test_hkma_hibor_overnight_spiked_at_the_2024_year_end():
+    """Hong Kong interbank rates, which the international providers do not
+    carry at this granularity."""
+    out = api.fetch("HKMA", "hk-interbank-ir-daily", {"SERIES": "ir_overnight"},
+                    "2024-01-02", "2024-01-05")
+    assert out["series"][0]["observations"][0] == ["2024-01-02", pytest.approx(4.40452)]
+    assert out["range"] == ["2024-01-02", "2024-01-05"]
+
+
+def test_hkma_ignores_a_date_range_unless_the_period_column_is_named():
+    """The reason the adapter filters what arrives. Asked without `choose`,
+    HKMA answers a four-day request with its entire history and a 200."""
+    flow = "monthly-statistical-bulletin/er-ir/hk-interbank-ir-daily"
+    url = f"{hkma.BASE}/{flow}"
+    window = {"from": "2024-01-02", "to": "2024-01-05", "pagesize": 20000}
+    loose = cache.session().get(url, params=window, timeout=cache.TIMEOUT).json()
+    tight = cache.session().get(url, params={**window, "choose": "end_of_day"},
+                                timeout=cache.TIMEOUT).json()
+    assert loose["header"]["success"] and tight["header"]["success"]
+    assert loose["result"]["datasize"] > 1000   # the whole series, silently
+    assert tight["result"]["datasize"] == 4
+
+
+def test_hkma_a_coarse_bound_would_silently_return_nothing():
+    """The other half of the trap: with `choose` the comparison is literal, so
+    a year against a quarter matches no rows at all."""
+    url = f"{hkma.BASE}/monthly-statistical-bulletin/banking/capital-adequacy"
+    body = cache.session().get(url, params={"choose": "end_of_quarter", "from": "2024",
+                                            "to": "2024", "pagesize": 20000},
+                               timeout=cache.TIMEOUT).json()
+    assert body["header"]["success"]
+    assert body["result"]["datasize"] == 0
+    # The adapter is asked the same thing and gets it right.
+    out = api.fetch("HKMA", "capital-adequacy", {"SERIES": "total_cap_ratio"}, "2024", "2024")
+    assert out["total"] == 4
+
+
+def test_imf_vintages_show_a_revision_the_current_flow_hides():
+    """Japan's 2024 nominal GDP was revised up by 525.3bn yen between the April
+    2026 vintage and the current release. Reading only the current flow gives
+    the revised figure with no sign it ever said anything else."""
+    key = {"COUNTRY": "JPN", "INDICATOR": "B1GQ", "PRICE_TYPE": "V",
+           "TYPE_OF_TRANSFORMATION": "XDC", "FREQUENCY": "A"}
+    out = vintages.compare("IMF_DATA", "ANEA", key, "2024", "2024")
+    assert out["vintages"][-1] == "ANEA"
+    revision = next(r for r in out["revisions"] if r["period"] == "2024")
+    assert revision["was"] == pytest.approx(634226000000000.0)
+    assert revision["now"] == pytest.approx(634751300000000.0)
+    assert revision["between"][1] == "ANEA"
+
+
+def test_a_flow_without_vintages_is_not_silently_treated_as_having_none():
+    """CO2 emissions is published once, not as monthly vintages. Saying so is
+    the point: an empty list alone reads like a lookup that failed."""
+    out = vintages.available("IMF_DATA", "CO2E")
+    assert out["vintages"] == [] and "as-revised" in out["note"]
+
+
+def test_the_vintages_of_a_flow_are_not_confused_with_a_longer_named_one():
+    """CPI and CPI_WCA both have vintages, and the catalogue is searched by
+    substring, so CPI must not collect CPI_WCA's."""
+    got = vintages.available("IMF_DATA", "CPI")["vintages"]
+    assert got and all(vintages.family(v) == "CPI" for v in got)

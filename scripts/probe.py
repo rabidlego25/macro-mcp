@@ -35,7 +35,27 @@ def attempt(fn):
             time.sleep(3)
 
 
+def probe_native(provider: str) -> tuple[tuple[str, ...], str]:
+    """The non-SDMX adapters answer the same four calls, so they are measured
+    through those. Probing them through the SDMX internals, as this script once
+    did, exercises code they never reach."""
+    out, err = attempt(lambda: api.dataflows(provider, "a", 1))
+    if err:
+        return (), f"dataflow: {err}"[:110]
+    shown = out.get("shown") or []
+    if not shown:
+        return (), f"dataflow: {out.get('error', 'empty list')}"[:110]
+
+    got, err = attempt(lambda: api.describe_flow(provider, shown[0]["id"]))
+    err = err or (got or {}).get("error", "")
+    if err:
+        return ("dataflow",), f"datastructure: {err}"[:110]
+    return ("dataflow", "datastructure"), ""
+
+
 def probe(provider: str) -> tuple[tuple[str, ...], str]:
+    if provider in api.NATIVE:
+        return probe_native(provider)
     flows, err = attempt(lambda: api._flows(provider))
     if err:
         return (), f"dataflow: {err}"[:110]

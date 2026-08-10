@@ -6,12 +6,12 @@ from functools import lru_cache
 import sdmx
 from sdmx.source import sources as _sources
 
-from . import bundesbank, cache, singstat
+from . import bundesbank, cache, hkma, singstat
 
 # Providers that do not speak SDMX at all. Each implements the same four calls
 # and returns the same response shapes, so they reach the agent through the
 # same tools rather than growing a parallel set.
-NATIVE = {"SINGSTAT": singstat}
+NATIVE = {"SINGSTAT": singstat, "HKMA": hkma}
 
 # sdmx1 ships hardcoded endpoints that drift as institutions move. These are
 # verified against the live services rather than the library's registry.
@@ -31,7 +31,7 @@ GROUPS = {
     "europe": ["ECB", "ESTAT3", "ESTAT", "ESTAT_COMEXT", "COMP", "EMPL", "GROW"],
     "national_eu": ["BBK", "INSEE", "ISTAT", "NBB", "NB", "LSD"],
     "americas": ["StatCan", "INEGI", "AR1", "UY110"],
-    "asia_pacific": ["ABS", "SPC", "SINGSTAT"],
+    "asia_pacific": ["ABS", "SPC", "SINGSTAT", "HKMA"],
 }
 
 # Verified against the live services on 2026-08-10. Surfaced rather than hidden.
@@ -50,6 +50,7 @@ QUIRKS = {
     "AR1": "static XML files, data messages only",
     "UNICEF": "structure-specific data; DSD must be fetched separately",
     "SINGSTAT": "not SDMX; no catalogue listing, so find_dataflows needs a search term",
+    "HKMA": "not SDMX; one wide table per dataset, so each column is a SERIES code",
 }
 
 
@@ -57,7 +58,7 @@ QUIRKS = {
 # rather than read from sdmx1's `source.supports`. That table is wrong in both
 # directions: it advertises metadata for BBK, whose every standard path 404s,
 # and it is static, so it cannot know that the adapter here makes BBK work.
-# Probed 2026-08-10; regenerate with `MACRO_MCP_NO_CACHE=1 uv run python -m scripts.probe`.
+# Probed 2026-08-10 (all 29, including the non-SDMX adapters); regenerate with `MACRO_MCP_NO_CACHE=1 uv run python -m scripts.probe`.
 SUPPORTS = {
     "BIS": ("dataflow", "datastructure"),
     "IMF_DATA": ("dataflow", "datastructure"),
@@ -87,6 +88,7 @@ SUPPORTS = {
     "ABS": ("dataflow", "datastructure"),
     "SPC": ("dataflow", "datastructure"),
     "SINGSTAT": ("dataflow", "datastructure"),
+    "HKMA": ("dataflow", "datastructure"),
 }
 
 # Providers absent from SUPPORTS are assumed capable, so adding one to GROUPS

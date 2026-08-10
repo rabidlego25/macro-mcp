@@ -6,17 +6,18 @@ balance sheet) convert at end-of-period. Picking the wrong one silently shifts
 results by percent, so the choice is a required argument.
 """
 
-import httpx
-
 import sdmx
+
+from . import cache
 
 FRANKFURTER = "https://api.frankfurter.dev/v1"
 
 
 def spot(base: str, quote: str, date: str | None = None) -> dict:
     """Daily ECB reference rate. Free, no key, 30+ currencies."""
-    r = httpx.get(f"{FRANKFURTER}/{date or 'latest'}",
-                  params={"base": base.upper(), "symbols": quote.upper()}, timeout=30)
+    r = cache.session().get(f"{FRANKFURTER}/{date or 'latest'}",
+                            params={"base": base.upper(), "symbols": quote.upper()},
+                            timeout=cache.TIMEOUT)
     r.raise_for_status()
     d = r.json()
     return {"base": d["base"], "quote": quote.upper(),
@@ -30,7 +31,7 @@ def period_rate(currency: str, start: str, end: str, convention: str = "average"
     convention: "average" for flows, "end_of_period" for stocks.
     """
     suffix = {"average": "A", "end_of_period": "E"}[convention]
-    msg = sdmx.Client("ECB").data(
+    msg = sdmx.Client("ECB", session=cache.session()).data(
         "EXR",
         key={"FREQ": freq, "CURRENCY": currency.upper(), "CURRENCY_DENOM": "EUR",
              "EXR_TYPE": "SP00", "EXR_SUFFIX": suffix},

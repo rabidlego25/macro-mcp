@@ -57,6 +57,8 @@ metadata is never returned whole.
 | `describe_flow` | Dimensions with code counts and a sample |
 | `search_codes` | Resolve one dimension's codes, including country codes |
 | `fetch_data` | Observations for a dimension key, as compact series |
+| `list_vintages` | Releases of a dataflow, oldest first |
+| `compare_vintages` | One key across vintages, with the revisions between them |
 | `find_entity` | GLEIF search by legal name |
 | `get_entity` | Look up one LEI |
 | `entity_ownership` | Direct parent, ultimate parent, direct children |
@@ -81,6 +83,24 @@ yields goes from 173KB to 6KB.
 `range` is the span actually returned, so truncation is visible rather than
 inferred from a `total` that does not match. Truncation keeps the most recent
 observations. Periods with no value are omitted and counted under `empty`.
+
+## Point in time
+
+A series read today is as-revised, not as-known, which quietly gives a backtest
+numbers nobody had at the time. IMF republishes whole dataflows as monthly
+vintages beside the current one, so `compare_vintages` can read the same key
+from each and report what moved:
+
+```json
+{"period": "2024", "was": 634226000000000.0, "now": 634751300000000.0,
+ "between": ["ANEA_2026_APR_VINTAGE", "ANEA"], "change_pct": 0.0828}
+```
+
+Japan's 2024 nominal GDP, revised up by ¥525.3bn since the April 2026 vintage.
+Coverage varies between vintages as well as values — one 2026 vintage of the
+national accounts carries 18,068 observations and another 204 — so a vintage
+that does not have the key is listed under `no_data` rather than counted as
+agreeing with its neighbours.
 
 ## Caching
 
@@ -125,7 +145,8 @@ The server surfaces these; it does not silently fix them.
 - Fiscal years differ. India, Japan and Australia are not calendar-year.
 - Seasonal adjustment differs: X-13 in the US, TRAMO/SEATS across much of Europe.
 - Most providers publish revisions without point-in-time access, so history reads
-  as-revised rather than as-known.
+  as-revised rather than as-known. IMF is the exception, and `compare_vintages`
+  reads it; everywhere else the caveat still stands.
 - Entity search matches broadly and may rank a subsidiary above its parent. Hits
   carry country and status; use `entity_ownership` to walk up the group.
 
@@ -137,11 +158,16 @@ The server surfaces these; it does not silently fix them.
   the IMF, World Bank and ILO are comparably broad. What is missing is national
   detail, and there the constraint bites: e-Stat (Japan), ECOS (Korea), KOSIS and
   data.gov.in all require registration, so they cannot be included while the
-  project stays keyless. Singapore is in via `SINGSTAT`. Hong Kong's HKMA API is
-  free and keyless and was reachable during this work, but began returning 502 on
-  every path, so no adapter was written against it unverified. Malaysia's
-  OpenDOSM (`api.data.gov.my`) is keyless and works, but exposes no catalogue
-  endpoint, so dataset ids would have to be hard-coded.
+  project stays keyless. Singapore is in via `SINGSTAT` and Hong Kong via
+  `HKMA`. Malaysia's OpenDOSM (`api.data.gov.my`) is keyless and works, but
+  exposes no catalogue endpoint at all, so dataset ids would have to be invented
+  from the documentation rather than derived from it.
+- **HKMA's dataset list is a snapshot.** HKMA publishes no catalogue endpoint,
+  so the 125 datasets in `hkma.py` were read off the documentation and then
+  verified one request each against the live API. That table goes stale as HKMA
+  adds and retires datasets; a retired one is reported as such rather than as a
+  bare 404. Regenerate it with
+  `uv run python -m scripts.hkma_catalogue`.
 - **IMF publishes three endpoints and only one serves data.** `sdmx1` ships
   `IMF` (sdmxcentral, which answers 501 on data), `IMF_DATA` (SDMX 2.1) and
   `IMF_DATA3` (SDMX 3.0). The 3.0 service returns structures but a header and one
