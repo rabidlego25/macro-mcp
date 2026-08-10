@@ -68,7 +68,12 @@ def search_codes(provider: str, flow: str, dimension: str, query: str = "",
 def fetch_data(provider: str, flow: str, key: dict, start: str = "", end: str = "",
                limit: int = 500) -> dict:
     """Fetch observations. key maps dimension ids to codes, e.g.
-    {"FREQ": "M", "CURRENCY": "USD"}."""
+    {"FREQ": "M", "CURRENCY": "USD"}.
+
+    Returns the invariant part of the key once under "key", and observations as
+    [period, value] pairs grouped into "series" by whichever dimensions vary.
+    "range" is the period span actually returned; periods with no value are
+    omitted and counted under "empty"."""
     return sdmx_api.fetch(provider, flow, key, start or None, end or None, limit)
 
 

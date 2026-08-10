@@ -23,16 +23,26 @@ def test_bundesbank_ten_year_bund_yield():
            "BBK_SEIS_INTEREST_TYPE": "R", "BBK_SEIS_INTEREST_RATE": "A",
            "BBK_SEIS_REDEMPTION": "A", "BBK_SEIS_CERTIFICATE": "_Z",
            "BBK_SEIS_COVERAGE": "_Z", "BBK_SEIS_RATING": "A"}
-    rows = api.fetch("BBK", "BBSIS", key, "2024-01-02", "2024-01-03")["records"]
-    assert [r["value"] for r in rows] == pytest.approx([2.13, 2.10])
+    out = api.fetch("BBK", "BBSIS", key, "2024-01-01", "2024-01-03")
+    assert out["series"][0]["observations"] == [["2024-01-02", pytest.approx(2.13)],
+                                                ["2024-01-03", pytest.approx(2.10)]]
+    assert out["empty"] == 1  # New Year's Day carries OBS_STATUS=K and no value
+    assert out["key"]["BBK_SEIS_MATURITY"] == "R10XX"  # key hoisted, not per-row
 
 
 def test_bis_japan_policy_rate_turns_positive_in_march_2024():
-    rows = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP"},
-                     "2024-01", "2024-03")["records"]
-    by_period = {r["TIME_PERIOD"]: r["value"] for r in rows}
+    out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP"},
+                    "2024-01", "2024-03")
+    by_period = dict(out["series"][0]["observations"])
     assert by_period["2024-01"] == pytest.approx(-0.1)
     assert by_period["2024-03"] == pytest.approx(0.05)
+
+
+def test_multi_country_query_groups_into_one_series_per_country():
+    out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP+US"},
+                    "2024-01", "2024-03")
+    assert out["key"] == {"FREQ": "M"}
+    assert {s["key"]["REF_AREA"] for s in out["series"]} == {"JP", "US"}
 
 
 def test_fx_conventions_differ():

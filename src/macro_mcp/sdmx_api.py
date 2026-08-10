@@ -171,6 +171,46 @@ def search_codes(provider: str, flow: str, dimension: str, query: str = "", limi
     return {"error": f"no dimension {dimension} in {flow}"}
 
 
+def _pack(df, limit: int) -> dict:
+    """Hoist the invariant part of the key and nest the rest as series.
+
+    A row-per-observation frame repeats the whole key on every row, which on a
+    16-dimension flow costs ~450 redundant bytes an observation. Empty
+    observations are dropped rather than serialised: NaN is not valid JSON, and
+    a daily series is roughly a third weekends.
+    """
+    empty = int(df["value"].isna().sum())
+    df = df[df["value"].notna()].sort_values("TIME_PERIOD", kind="stable")
+    total = len(df)
+    truncated = total > limit
+    if truncated:
+        df = df.tail(limit)  # most recent; `range` states what came back
+
+    dims = [c for c in df.columns if c not in ("TIME_PERIOD", "value")]
+    fixed = {d: str(df[d].iloc[0]) for d in dims if df[d].nunique() == 1} if total else {}
+    vary = [d for d in dims if d not in fixed]
+
+    def obs(g):
+        return [[str(p), float(v)] for p, v in zip(g["TIME_PERIOD"], g["value"])]
+
+    if not total:
+        series = []
+    elif vary:
+        series = [{"key": dict(zip(vary, (str(x) for x in (k if isinstance(k, tuple) else (k,))))),
+                   "observations": obs(g)} for k, g in df.groupby(vary, sort=False)]
+    else:
+        series = [{"key": {}, "observations": obs(df)}]
+
+    out = {"key": fixed, "columns": ["period", "value"], "series": series, "total": total}
+    if total:
+        out["range"] = [str(df["TIME_PERIOD"].iloc[0]), str(df["TIME_PERIOD"].iloc[-1])]
+    if truncated:
+        out["truncated"] = f"most recent {limit} of {total}; narrow start/end for the rest"
+    if empty:
+        out["empty"] = empty
+    return out
+
+
 def fetch(provider: str, flow: str, key: dict, start: str | None = None,
           end: str | None = None, limit: int = 500) -> dict:
     params = {}
@@ -180,17 +220,15 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
         params["endPeriod"] = end
     if provider == "BBK":
         msg = bundesbank.data(flow, key, params)
-        df = sdmx.to_pandas(msg).reset_index()
-        df.columns = [*df.columns[:-1], "value"]
-        return {"total": len(df), "records": df.head(limit).to_dict("records")}
-    try:
-        msg = _client(provider).data(flow, key=key, params=params)
-    except sdmx.exceptions.XMLParseError:
-        # Some providers (BIS) serve structure-specific data referencing a DSD
-        # sdmx1 cannot resolve. Generic SDMX-ML parses cleanly.
-        msg = _client(provider).data(
-            flow, key=key, params=params,
-            headers={"Accept": "application/vnd.sdmx.genericdata+xml;version=2.1"})
+    else:
+        try:
+            msg = _client(provider).data(flow, key=key, params=params)
+        except sdmx.exceptions.XMLParseError:
+            # Some providers (BIS) serve structure-specific data referencing a DSD
+            # sdmx1 cannot resolve. Generic SDMX-ML parses cleanly.
+            msg = _client(provider).data(
+                flow, key=key, params=params,
+                headers={"Accept": "application/vnd.sdmx.genericdata+xml;version=2.1"})
     df = sdmx.to_pandas(msg).reset_index()
     df.columns = [*df.columns[:-1], "value"]
-    return {"total": len(df), "records": df.head(limit).to_dict("records")}
+    return _pack(df, limit)

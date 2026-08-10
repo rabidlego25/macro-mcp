@@ -52,12 +52,31 @@ metadata is never returned whole.
 | `find_dataflows` | Search a provider's dataflows |
 | `describe_flow` | Dimensions with code counts and a sample |
 | `search_codes` | Resolve one dimension's codes, including country codes |
-| `fetch_data` | Observations for a dimension key |
+| `fetch_data` | Observations for a dimension key, as compact series |
 | `find_entity` | GLEIF search by legal name |
 | `get_entity` | Look up one LEI |
 | `entity_ownership` | Direct parent, ultimate parent, direct children |
 | `fx_spot` | Daily ECB reference rate |
 | `fx_period_rate` | Average or end-of-period rate |
+
+The same restraint applies to data. A flat row per observation repeats the whole
+key on every row, which on a 16-dimension flow is around 450 wasted bytes an
+observation, so `fetch_data` hoists the invariant part of the key, groups the
+rest into series and returns `[period, value]` pairs. A year of daily Bund
+yields goes from 173KB to 6KB.
+
+```json
+{
+  "key": {"FREQ": "M"},
+  "columns": ["period", "value"],
+  "series": [{"key": {"REF_AREA": "JP"}, "observations": [["2024-01", -0.1]]}],
+  "range": ["2024-01", "2024-12"], "total": 24
+}
+```
+
+`range` is the span actually returned, so truncation is visible rather than
+inferred from a `total` that does not match. Truncation keeps the most recent
+observations. Periods with no value are omitted and counted under `empty`.
 
 ## Tests
 
