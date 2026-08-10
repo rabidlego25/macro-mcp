@@ -18,15 +18,24 @@ from sdmx.session import Session
 
 TTL = 7 * 24 * 3600
 
-# Every path that carries observations rather than structure. `*/data/*` covers
-# SDMX REST; the others are the adapters, whose data paths are named differently
-# and would otherwise inherit the week-long metadata TTL.
-EXPIRY = {
-    "*/data/*": 0,
-    "*/tabledata/*": 0,          # SINGSTAT
-    "api.hkma.gov.hk/*": 0,      # HKMA serves data and metadata from one path
-    "*": TTL,
-}
+# Paths carrying observations. These come first because the first matching
+# pattern wins and BIS puts /data/dataflow/ in its *data* URLs, which the
+# structure patterns below would otherwise claim.
+DATA = ("*/data/*", "*/tabledata/*")
+
+# SDMX structure resources, plus SINGSTAT's catalogue search. These change
+# rarely and are expensive to rebuild.
+STRUCTURE = ("dataflow", "datastructure", "codelist", "conceptscheme",
+             "categoryscheme", "categorisation", "agencyscheme",
+             "contentconstraint", "resourceid")
+
+# Default deny. Naming the data paths instead would fail open: a new adapter
+# whose data path nobody remembered to list would quietly serve week-old
+# numbers, which is how SINGSTAT's /tabledata/ slipped through. Forgetting to
+# declare a path now costs a round trip rather than correctness.
+EXPIRY = {**{p: 0 for p in DATA},
+          **{f"*/{r}*": TTL for r in STRUCTURE},
+          "*": 0}
 TIMEOUT = 180.0
 USER_AGENT = "macro-mcp/0.1 (+https://github.com/topics/sdmx)"
 

@@ -89,9 +89,16 @@ Structures are large and slow to build — ISTAT takes 29s cold and 1.5s warm,
 Eurostat 52s and 11s — and providers republish them rarely. In-process
 memoisation alone threw all of that away when the server exited.
 
-Observations are never cached. `*/data/*` is pinned to expire immediately on
-every provider, because stale metadata is an annoyance and a stale exchange
-rate is a wrong answer. Set `MACRO_MCP_NO_CACHE=1` to bypass entirely.
+Nothing else is cached. The policy denies by default and names the structure
+endpoints it will keep, rather than naming the data paths it will skip. That
+ordering matters: the first version listed the data paths, and Singapore's
+`/tabledata/` was not among them, so observations would have been served up to a
+week stale. Under default-deny, an adapter whose paths nobody declared costs a
+round trip instead of correctness.
+
+The data patterns are declared first because the first match wins and BIS puts
+`/data/dataflow/` in its *data* URLs, which the structure patterns would
+otherwise claim. Set `MACRO_MCP_NO_CACHE=1` to bypass caching entirely.
 
 ## Tests
 

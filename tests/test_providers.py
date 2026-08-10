@@ -15,12 +15,26 @@ DATA_URLS = [
     "https://api.statistiken.bundesbank.de/rest/data/BBSIS/D.I.ZAR",
     "https://data-api.ecb.europa.eu/service/data/EXR/M.JPY.EUR.SP00.A",
     "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.JP",
+    "http://data.un.org/WS/rest/data/DF_UNData_UNFCC/A.AUS",
+    "https://tablebuilder.singstat.gov.sg/api/table/tabledata/M213801",
 ]
 
 METADATA_URLS = [
     "https://api.statistiken.bundesbank.de/rest/metadata/dataflow/BBK",
+    "https://api.statistiken.bundesbank.de/rest/metadata/codelist/BBK/CL_X",
     "https://sdw-wsrest.ecb.europa.eu/service/dataflow/ECB",
+    "https://sdmx.ilo.org/rest/dataflow",
     "https://sdmx.oecd.org/public/rest/dataflow/ESTAT/SEEA_AEA_A/1.4",
+    "https://tablebuilder.singstat.gov.sg/api/table/resourceid?keyword=cpi",
+]
+
+# Reachable hosts with no declared policy: adapters not yet written, and the
+# non-SDMX services.
+UNDECLARED_URLS = [
+    "https://api.hkma.gov.hk/public/market-data-and-statistics/daily/x",
+    "https://api.data.gov.my/data-catalogue?id=cpi_headline",
+    "https://api.gleif.org/api/v1/lei-records?filter=x",
+    "https://api.frankfurter.app/latest?from=EUR",
 ]
 
 
@@ -32,9 +46,34 @@ def test_observations_are_never_served_from_cache(url):
 
 @pytest.mark.parametrize("url", METADATA_URLS)
 def test_metadata_is_cached_for_the_full_ttl(url):
-    """BIS puts /data/ mid-path on data queries, so the pattern has to catch
-    those without also catching the structure endpoints."""
     assert get_url_expiration(url, cache.EXPIRY) == cache.TTL
+
+
+def test_data_patterns_win_over_structure_patterns():
+    """BIS puts /data/dataflow/ in its data URLs. The first matching pattern
+    wins, so the data entries have to be declared first; reordering the dict
+    would start caching BIS observations for a week."""
+    url = "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.JP"
+    assert list(cache.EXPIRY).index("*/data/*") < list(cache.EXPIRY).index("*/dataflow*")
+    assert get_url_expiration(url, cache.EXPIRY) == 0
+
+
+def test_bundesbank_metadata_is_not_mistaken_for_data():
+    """'metadata/dataflow' contains the substring 'data' but not '/data/'."""
+    url = "https://api.statistiken.bundesbank.de/rest/metadata/dataflow/BBK"
+    assert get_url_expiration(url, cache.EXPIRY) == cache.TTL
+
+
+@pytest.mark.parametrize("url", UNDECLARED_URLS)
+def test_undeclared_paths_are_not_cached(url):
+    """The policy denies by default. Listing data paths instead failed open:
+    SINGSTAT's /tabledata/ was not on that list and would have served week-old
+    figures. Forgetting a path now costs a round trip, not correctness."""
+    assert get_url_expiration(url, cache.EXPIRY) == 0
+
+
+def test_the_catch_all_denies_rather_than_permits():
+    assert cache.EXPIRY["*"] == 0
 
 
 def test_cache_lives_under_the_xdg_cache_dir(monkeypatch, tmp_path):
@@ -54,6 +93,22 @@ def test_cache_can_be_bypassed(monkeypatch, tmp_path, bypass, disabled):
         assert s.settings.disabled is disabled
         if not disabled:
             assert s.settings.urls_expire_after == cache.EXPIRY
+    finally:
+        cache.session.cache_clear()
+
+
+@pytest.mark.parametrize("bypass", ["1", "0"])
+def test_the_session_identifies_itself(monkeypatch, tmp_path, bypass):
+    """SINGSTAT answers the default python-requests agent with a 403. That was
+    invisible until it was wired in, because the survey script that found the
+    endpoint sent its own header."""
+    monkeypatch.setenv("MACRO_MCP_NO_CACHE", bypass)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    cache.session.cache_clear()
+    try:
+        ua = cache.session().headers["User-Agent"]
+        assert ua == cache.USER_AGENT and "macro-mcp" in ua
+        assert "python-requests" not in ua
     finally:
         cache.session.cache_clear()
 
