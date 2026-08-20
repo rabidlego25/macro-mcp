@@ -88,8 +88,7 @@ came back with only the country whose history ran latest. The split is max-min
 fair, so a short series hands its unused share to a long one and a response that
 fits under the budget is never clipped. Where there are more series than the
 budget can seat, the ones left out are named under `dropped_series` instead of
-going missing. Periods with no value are omitted and
-counted under `empty`.
+going missing. Periods with no value are omitted and counted under `empty`.
 
 ## Point in time
 
@@ -147,12 +146,6 @@ renamed something, or revised a series.
 Defects and constraints in this server, as distinct from properties of the data
 (below) and gaps in provider coverage (further below). Roughly worst first.
 
-- **A tight `limit` still costs resolution, though no longer whole series.**
-  The budget is split max-min fair, so nothing is clipped while there is room
-  and short series hand their surplus to long ones — but once the budget really
-  does bind, every long series is cut to the same depth regardless of which one
-  the question was about. Narrow `start`/`end`, or raise `limit`, when querying
-  several series at once.
 - **Observations are never cached, so every fetch pays full price.** That is
   deliberate — see Caching — but it means repeated identical queries re-download
   each time. It bites hardest on HKMA: a bound coarser than the endpoint's own
@@ -183,6 +176,13 @@ Defects and constraints in this server, as distinct from properties of the data
 - **No retries on the request path.** `scripts/probe.py` retries once, because
   recording a dropped connection as a missing endpoint is permanent; ordinary
   `fetch_data` does not, so ISTAT's intermittent 500s reach the agent as errors.
+- **`limit` binds evenly, not by importance.** The budget is split max-min
+  fair across the series in a response, so nothing is clipped while there is
+  room and a short series hands its surplus to a long one. Once it does bind,
+  though, every long series is cut to the same depth regardless of which one the
+  question was about, and a response with more series than the budget can seat
+  drops the excess — named under `dropped_series`, but dropped. Narrow
+  `start`/`end`, or raise `limit`, when querying several series at once.
 - **The non-SDMX adapters expose a single dimension.** Singapore and Hong Kong
   return one wide table per dataset, so `SERIES` is the only thing to slice on.
   There is no `REF_AREA` to filter, because there is no country dimension.
