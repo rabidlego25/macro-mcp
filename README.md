@@ -231,6 +231,15 @@ Defects and constraints in this server, as distinct from properties of the data
   question was about, and a response with more series than the budget can seat
   drops the excess — named under `dropped_series`, but dropped. Narrow
   `start`/`end`, or raise `limit`, when querying several series at once.
+- **The first BIS fetch of a session pays for a failed parse.** BIS serves
+  structure-specific data referencing a DSD `sdmx1` cannot resolve, so the
+  payload is downloaded and parsed once before the generic form is tried. The
+  provider is remembered after that and every later fetch goes generic-first,
+  but the knowledge dies with the process, and `sdmx1` prints its parse stack
+  and the failing element to stdout on the way — the MCP SDK claims that
+  descriptor and diverts it to stderr, so it is noise rather than corruption.
+  Not hardcoded to BIS on purpose: IMF answers 500 to the generic header, so a
+  wrong guess would take a provider down rather than waste a header.
 - **Units are only as good as the provider's own metadata.** HKMA states none
   at all, so its numbers come back bare. Bundesbank labels its unit in German
   (`PROZENT`) because the English one is published as an empty element, and its

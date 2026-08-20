@@ -395,6 +395,30 @@ def _pack(df, limit: int, units: tuple = ()) -> dict:
     return out
 
 
+GENERIC = {"Accept": "application/vnd.sdmx.genericdata+xml;version=2.1"}
+
+# Providers observed to serve structure-specific data referencing a DSD sdmx1
+# cannot resolve. BIS is the one that does today, and asking it the default way
+# costs a whole download and parse before failing — on the provider the README
+# leads with. Learned rather than listed: a hardcoded set has to be right about
+# providers nobody has tried, and it is not safe to guess in either direction.
+# IMF_DATA answers 500 to the generic Accept header, so a wrong entry does not
+# merely waste a header, it takes the provider down for this client. Nothing is
+# ever added here except by having failed.
+_NEEDS_GENERIC: set[str] = set()
+
+
+def _data(provider: str, flow: str, key: dict, params: dict):
+    if provider in _NEEDS_GENERIC:
+        return _client(provider).data(flow, key=key, params=params, headers=GENERIC)
+    try:
+        return _client(provider).data(flow, key=key, params=params)
+    except sdmx.exceptions.XMLParseError:
+        msg = _client(provider).data(flow, key=key, params=params, headers=GENERIC)
+        _NEEDS_GENERIC.add(provider)  # only after the generic form has worked
+        return msg
+
+
 def _attribute_ids(msg) -> set:
     """Attribute ids carried by a data message, at any of its three levels.
 
@@ -489,13 +513,6 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
     if provider == "BBK":
         msg = bundesbank.data(flow, key, params)
     else:
-        try:
-            msg = _client(provider).data(flow, key=key, params=params)
-        except sdmx.exceptions.XMLParseError:
-            # Some providers (BIS) serve structure-specific data referencing a DSD
-            # sdmx1 cannot resolve. Generic SDMX-ML parses cleanly.
-            msg = _client(provider).data(
-                flow, key=key, params=params,
-                headers={"Accept": "application/vnd.sdmx.genericdata+xml;version=2.1"})
+        msg = _data(provider, flow, key, params)
     df, units = _frame(msg, provider, flow)
     return _pack(df, limit, units)

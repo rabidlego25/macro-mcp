@@ -113,6 +113,14 @@ def test_fetch_retries_with_generic_sdmx_when_parsing_fails(monkeypatch):
     assert len(calls) == 2
     assert "genericdata" in calls[1]["Accept"]
 
+    # The second fetch must not repeat the download that already failed once.
+    # This assertion read == 2 before, which pinned a full wasted round trip
+    # per BIS fetch as the specification.
+    calls.clear()
+    api.fetch("BIS", "WS_CBPOL", {"FREQ": "M"})
+    assert len(calls) == 1
+    assert "genericdata" in calls[0]["Accept"]
+
 
 def _frame():
     import pandas as pd

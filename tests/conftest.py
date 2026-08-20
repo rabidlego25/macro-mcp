@@ -21,6 +21,15 @@ def parse(payload: bytes):
     return sdmx.read_sdmx(io.BytesIO(payload))
 
 
+@pytest.fixture(autouse=True)
+def unlearned():
+    """Which providers need the generic Accept header is learned at runtime and
+    kept for the life of the process, so it has to be forgotten between tests."""
+    api._NEEDS_GENERIC.clear()
+    yield
+    api._NEEDS_GENERIC.clear()
+
+
 @pytest.fixture
 def load():
     return raw
