@@ -15,6 +15,11 @@ Work through discovery in order: list_providers, find_dataflows, describe_flow,
 search_codes, then fetch_data. Do not guess dimension codes; resolve them with
 search_codes, including country codes, which differ per provider.
 
+Read "units" on every fetch_data response before using the numbers. It carries
+the scale as well as the measure, so a figure may be in units, thousands or
+millions, and two series in one response can differ. Where a provider states no
+unit, say so rather than assuming one.
+
 Cross-country comparisons break in predictable ways. Check each before reporting:
 - Aggregates and members coexist in the same geo codelist (EU27 alongside France).
   Summing both double-counts.
@@ -74,8 +79,9 @@ def fetch_data(provider: str, flow: str, key: dict, start: str = "", end: str = 
 
     Returns the invariant part of the key once under "key", and observations as
     [period, value] pairs grouped into "series" by whichever dimensions vary.
-    "range" is the period span actually returned; periods with no value are
-    omitted and counted under "empty"."""
+    "units" says what the numbers are measured in, including any multiplier —
+    read it before comparing or converting. "range" is the period span actually
+    returned; periods with no value are omitted and counted under "empty"."""
     return sdmx_api.fetch(provider, flow, key, start or None, end or None, limit)
 
 

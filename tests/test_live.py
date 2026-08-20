@@ -15,6 +15,25 @@ pytestmark = pytest.mark.skipif(
     reason="set MACRO_MCP_LIVE=1 to run tests that hit the network")
 
 
+def test_units_arrive_resolved_rather_than_as_provider_codes():
+    """BIS sends UNIT_MEASURE="368", which is no more use than the bare number
+    was. The label is the product; the code is not."""
+    out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP"},
+                    "2024-01", "2024-02")
+    assert out["units"]["UNIT_MEASURE"] == "Per cent per year"
+    assert out["units"]["UNIT_MULT"] == "Units"
+    assert "UNIT_MEASURE" not in out["key"]  # a unit is not a dimension
+
+
+def test_imf_publishes_no_unit_but_does_publish_a_scale():
+    """Its DSD declares UNIT and never populates it. An empty attribute must
+    not reach the response as though the provider had stated something."""
+    out = api.fetch("IMF_DATA", "CPI",
+                    {"COUNTRY": "JPN", "INDEX_TYPE": "CPI", "FREQUENCY": "M"},
+                    "2024-01", "2024-02")
+    assert out["units"] == {"SCALE": "Units"}
+
+
 def test_bundesbank_ten_year_bund_yield():
     key = {"BBK_STD_FREQ": "D", "BBK_SEIS_BEARER_REG": "I", "BBK_SEIS_ITEM": "ZAR",
            "BBK_SEIS_VALUATION": "ZI", "BBK_STD_CURRENCY": "EUR",

@@ -19,6 +19,12 @@ from . import cache
 BASE = "https://tablebuilder.singstat.gov.sg/api/table"
 DIMENSION = "SERIES"
 
+# Singapore states the unit per row, in the same payload the observations come
+# from. Read for search_codes since the beginning and dropped on the way to the
+# frame, which made this the one provider whose unit was in hand and discarded.
+UNIT = "UNIT"
+UNITS = (UNIT,)
+
 MONTHS = {m: f"{i:02d}" for i, m in enumerate(
     "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), 1)}
 
@@ -113,9 +119,9 @@ def codes(flow: str, dimension: str, query: str, limit: int) -> dict:
 def frame(flow: str, key: dict, start: str | None, end: str | None):
     series = str(key.get(DIMENSION, "") or "")
     rows = _table(flow, series).get("row", [])
-    records = [(r["seriesNo"], period(c["key"]), c["value"])
+    records = [(r["seriesNo"], r.get("uoM") or "", period(c["key"]), c["value"])
                for r in rows for c in r["columns"]]
-    df = pd.DataFrame(records, columns=[DIMENSION, "TIME_PERIOD", "value"])
+    df = pd.DataFrame(records, columns=[DIMENSION, UNIT, "TIME_PERIOD", "value"])
     df = df[[_within(p, start, end) for p in df["TIME_PERIOD"]]]
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df

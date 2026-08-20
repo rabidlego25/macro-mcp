@@ -164,6 +164,47 @@ def _matches(q: str, ident: str, names: dict) -> bool:
     return q in ident.lower() or any(q in s.lower() for s in names.values())
 
 
+# Attributes that say what a number is measured in. A bare 634751300000000.0 is
+# not an answer to "what was Japan's GDP" — it is 634.75tn yen or 634.75bn,
+# depending on a multiplier the provider ships and sdmx1 discards by default.
+#
+# Matched by pattern rather than listed, because the name differs per provider:
+# BIS and ILO write UNIT_MEASURE/UNIT_MULT, ECB writes UNIT and
+# UNIT_INDEX_BASE, BBK prefixes its own with BBK_, and IMF publishes neither
+# but does populate SCALE. Everything else a provider attaches is prose or
+# process metadata — BIS alone ships 2.5KB of compilation notes per series —
+# and is dropped, since this response format exists to be small.
+_UNIT = re.compile(r"(^|_)(UNIT|SCALE)(_|$)")
+
+
+def _is_unit(name: str) -> bool:
+    return bool(_UNIT.search(name))
+
+
+@lru_cache(maxsize=64)
+def _unit_labels(provider: str, flow: str) -> dict:
+    """Code to English label, per unit attribute.
+
+    The values arrive as codes — BIS sends UNIT_MEASURE="368" — which are no
+    more use to an agent than the bare number was. They resolve through the
+    same codelist machinery the dimensions use, against a DSD describe_flow has
+    usually already cached. A provider that serves no structure metadata leaves
+    the raw code, which beats dropping it.
+    """
+    try:
+        dsd = _dsd(provider, flow)
+    except Exception:
+        return {}
+    out = {}
+    for a in getattr(getattr(dsd, "attributes", None), "components", []):
+        if not _is_unit(a.id):
+            continue
+        cl = _codes(a, provider)
+        if cl is not None:
+            out[a.id] = {c.id: _label(_names(c)) for c in cl}
+    return out
+
+
 def _supports(provider: str, resource: str) -> bool:
     return resource in SUPPORTS.get(provider, DEFAULT_SUPPORT)
 
@@ -273,7 +314,22 @@ def _shares(lengths: list[int], limit: int) -> list[int]:
     return shares
 
 
-def _pack(df, limit: int) -> dict:
+def _split(d: dict, units) -> tuple[dict, dict]:
+    """Dimensions and units travel together through grouping and part here.
+
+    A unit is not part of the key. Returned inside it, an agent would echo it
+    back to fetch_data as a dimension and get an error from the provider.
+    """
+    return ({k: v for k, v in d.items() if k not in units},
+            {k: v for k, v in d.items() if k in units})
+
+
+def _identify(d: dict, units) -> dict:
+    key, unit = _split(d, units)
+    return {"key": key, "units": unit} if unit else {"key": key}
+
+
+def _pack(df, limit: int, units: tuple = ()) -> dict:
     """Hoist the invariant part of the key and nest the rest as series.
 
     A row-per-observation frame repeats the whole key on every row, which on a
@@ -289,6 +345,8 @@ def _pack(df, limit: int) -> dict:
     # that truncation had deleted entirely make the survivor's key look
     # invariant, so a two-series request came back reading as though only one
     # series had ever been asked for.
+    # Units are grouped on exactly as dimensions are, so a response mixing
+    # percent with index says so instead of interleaving the two silently.
     dims = [c for c in df.columns if c not in ("TIME_PERIOD", "value")]
     fixed = {d: str(df[d].iloc[0]) for d in dims if df[d].nunique() == 1} if total else {}
     vary = [d for d in dims if d not in fixed]
@@ -311,12 +369,16 @@ def _pack(df, limit: int) -> dict:
     tails = [(k, g.tail(n)) for (k, g), n in zip(kept, shares)]
     shown = sum(len(g) for _, g in tails)
 
-    series = [{"key": k,
+    series = [{**_identify(k, units),
                "observations": [[_period(p), float(v)]
                                 for p, v in zip(g["TIME_PERIOD"], g["value"])]}
               for k, g in tails]
 
-    out = {"key": fixed, "columns": ["period", "value"], "series": series, "total": total}
+    hoisted, hoisted_units = _split(fixed, units)
+    out = {"key": hoisted, "columns": ["period", "value"], "series": series,
+           "total": total}
+    if hoisted_units:
+        out["units"] = hoisted_units
     if shown:
         periods = [str(p) for _, g in tails for p in g["TIME_PERIOD"]]
         out["range"] = [_period(min(periods)), _period(max(periods))]
@@ -326,16 +388,99 @@ def _pack(df, limit: int) -> dict:
                             f"{max(shares, default=0)} per series"
                             ) + "; narrow start/end for the rest"
     if dropped:
-        out["dropped_series"] = {"count": len(dropped), "keys": dropped[:10]}
+        out["dropped_series"] = {"count": len(dropped),
+                                 "keys": [_split(k, units)[0] for k in dropped[:10]]}
     if empty:
         out["empty"] = empty
     return out
 
 
+def _attribute_ids(msg) -> set:
+    """Attribute ids carried by a data message, at any of its three levels.
+
+    Read off the message rather than the DSD, so telling a unit from a
+    dimension never costs a structure request. Only turning its code into a
+    label does.
+    """
+    ids = set()
+    for ds in getattr(msg, "data", []) or []:
+        ids |= set(getattr(ds, "attrib", {}) or {})
+        for sk, obs in (getattr(ds, "series", {}) or {}).items():
+            ids |= set(getattr(sk, "attrib", {}) or {})
+            for o in list(obs)[:1]:
+                ids |= set(getattr(o, "attached_attribute", {}) or {})
+        for o in list(getattr(ds, "obs", []) or [])[:1]:
+            ids |= set(getattr(o, "attached_attribute", {}) or {})
+    return ids
+
+
+def _dimension_ids(msg) -> set:
+    """Dimension ids carried by a data message, from the series keys."""
+    ids = set()
+    for ds in getattr(msg, "data", []) or []:
+        for sk in (getattr(ds, "series", {}) or {}):
+            ids |= set(getattr(sk, "values", {}) or {})
+        for o in list(getattr(ds, "obs", []) or [])[:1]:
+            ids |= set(getattr(getattr(o, "key", None), "values", {}) or {})
+    return ids
+
+
+def _text(v) -> str:
+    t = "" if v is None else str(v).strip()
+    return "" if t in ("nan", "None", "NaN") else t
+
+
+def _frame(msg, provider: str, flow: str):
+    """Observations, plus whatever says what they are measured in.
+
+    Returns the frame and the names of its unit columns. Attributes are asked
+    for only when the message carries a unit, because asking has two costs:
+    every other attribute arrives too — BIS ships 2.5KB of compilation notes
+    per series, against a response format whose whole point is 6KB — and
+    `value` stops being the last column, which the rename below assumes.
+    """
+    attrs = _attribute_ids(msg)
+    units = sorted(a for a in attrs if _is_unit(a))
+    if not units:
+        df = sdmx.to_pandas(msg).reset_index()
+        df.columns = [*df.columns[:-1], "value"]
+        return df, ()
+
+    df = sdmx.to_pandas(msg, attributes="dso").reset_index()
+    if "value" not in df.columns:
+        df.columns = [*df.columns[:-1], "value"]
+
+    labels = _unit_labels(provider, flow)
+    kept = []
+    for u in units:
+        if u not in df.columns:
+            continue
+        raw = [_text(v) for v in df[u]]
+        # IMF declares a UNIT attribute on its DSD and never populates it. A
+        # column of empty strings would hoist into the response as a fact.
+        if not any(raw):
+            continue
+        codes = labels.get(u, {})
+        df[u] = [codes.get(v, v) for v in raw]
+        kept.append(u)
+
+    # Allowlist rather than denylist. to_pandas emits a column for every
+    # attribute the DSD declares, including ones this message never carried, so
+    # excluding what the message did carry left ECB with fourteen empty prose
+    # columns — which _pack then hoisted into the key as though they were facts.
+    dims = _dimension_ids(msg)
+    keep = [c for c in df.columns
+            if c in ("TIME_PERIOD", "value") or c in kept
+            or (c in dims if dims else c not in attrs)]
+    return df[keep], tuple(kept)
+
+
 def fetch(provider: str, flow: str, key: dict, start: str | None = None,
           end: str | None = None, limit: int = 500) -> dict:
     if provider in NATIVE:
-        return _pack(NATIVE[provider].frame(flow, key, start, end), limit)
+        adapter = NATIVE[provider]
+        return _pack(adapter.frame(flow, key, start, end), limit,
+                     getattr(adapter, "UNITS", ()))
     params = {}
     if start:
         params["startPeriod"] = start
@@ -352,6 +497,5 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
             msg = _client(provider).data(
                 flow, key=key, params=params,
                 headers={"Accept": "application/vnd.sdmx.genericdata+xml;version=2.1"})
-    df = sdmx.to_pandas(msg).reset_index()
-    df.columns = [*df.columns[:-1], "value"]
-    return _pack(df, limit)
+    df, units = _frame(msg, provider, flow)
+    return _pack(df, limit, units)

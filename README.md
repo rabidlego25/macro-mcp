@@ -74,11 +74,36 @@ yields goes from 173KB to 6KB.
 ```json
 {
   "key": {"FREQ": "M"},
+  "units": {"UNIT_MEASURE": "Per cent per year", "UNIT_MULT": "Units"},
   "columns": ["period", "value"],
   "series": [{"key": {"REF_AREA": "JP"}, "observations": [["2024-01", -0.1]]}],
   "range": ["2024-01", "2024-12"], "total": 24
 }
 ```
+
+## Units
+
+A bare `634751300000000.0` is not an answer to what Japan's GDP was — it is
+¥634.75tn or ¥634.75bn depending on a multiplier the provider ships and `sdmx1`
+discards unless asked. So `fetch_data` returns what the number is measured in,
+resolved from the provider's code to its label: BIS sends `UNIT_MEASURE="368"`,
+which is no more use than the number was.
+
+Providers spell it differently and attach it at different levels — BIS and ILO
+write `UNIT_MEASURE`/`UNIT_MULT`, ECB adds `UNIT_INDEX_BASE`, Bundesbank
+prefixes its own `BBK_UNIT`, IMF publishes no unit at all but does populate
+`SCALE`, and Singapore states one per row — so units are matched by pattern
+rather than by a list, at whatever level they arrive.
+
+They are returned beside the key, never inside it: a unit is not a dimension,
+and an agent that echoed one back to `fetch_data` would get an error from the
+provider. A unit that is invariant across the response is hoisted once; one
+that varies lands on each series, so a response mixing percent with an index
+says so instead of interleaving the two silently.
+
+Nothing else a provider attaches is returned. BIS ships around 2.5KB of
+compilation notes and source references per series, against a response format
+whose whole point is 6KB.
 
 `range` is the span actually returned, so truncation is visible rather than
 inferred from a `total` that does not match. Truncation keeps the most recent
@@ -206,6 +231,16 @@ Defects and constraints in this server, as distinct from properties of the data
   question was about, and a response with more series than the budget can seat
   drops the excess — named under `dropped_series`, but dropped. Narrow
   `start`/`end`, or raise `limit`, when querying several series at once.
+- **Units are only as good as the provider's own metadata.** HKMA states none
+  at all, so its numbers come back bare. Bundesbank labels its unit in German
+  (`PROZENT`) because the English one is published as an empty element, and its
+  multiplier resolves to a raw `0` because no `CL_BBK_UNIT_MULT` codelist is
+  served. A raw code is left in place rather than guessed at.
+- **Resolving a unit code needs the flow's structure.** `fetch_data` now reads
+  the DSD to turn `368` into "Per cent per year", so a cold fetch against a
+  provider whose structures are slow — ISTAT is 29s cold — pays for that
+  metadata once a week. `describe_flow` has usually already warmed it, since the
+  prescribed order goes through it.
 - **The non-SDMX adapters expose a single dimension.** Singapore and Hong Kong
   return one wide table per dataset, so `SERIES` is the only thing to slice on.
   There is no `REF_AREA` to filter, because there is no country dimension.
