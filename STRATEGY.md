@@ -262,8 +262,11 @@ are the better first cohort.
 - **Not venture-scale.** Plausibly a very good $3–8M ARR business, which is a
   fine life and a poor venture outcome. Taking money forecloses that path.
 - **Maintenance drag.** Hard-coded catalogues, corrected base URLs and a snapshot
-  capability table all rot. Weekly CI on the live suite turns debt into a
-  notification.
+  capability table all rot. ~~Weekly CI on the live suite turns debt into a
+  notification.~~ **Done 2026-08-20**, but it needed the live suite split
+  first: it pinned values that revise, including one read from the current IMF
+  flow, so a schedule would have gone red because a provider did its job. Drift
+  now fails the build; a revision reports and cannot.
 - **Models get good enough to just use the raw APIs.** Real, and it argues for
   investing in the archive and guardrails rather than the access layer, which is
   what commoditizes first.

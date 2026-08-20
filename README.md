@@ -236,6 +236,18 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A paced host is a slow host.** HKMA is asked one request at a time, so
   reading several of its datasets in one turn now costs at least 250ms each
   rather than going out together. That is the trade the 502s bought.
+- **The offline suite still misses two layers.** GLEIF has no offline test at
+  all, and `server.py` — every tool signature and docstring an agent actually
+  reads — has none either, so nothing checks the contract the agent is handed.
+  The nine fixtures cover Bundesbank, HKMA and Singapore: the three adapters
+  that are exceptions to the SDMX spine. The spine that 27 of 29 providers
+  traverse has no recorded response anywhere in the repo, so its tests are
+  either live or stubbed.
+- **`limit` bounds the response, not the download.** The whole payload is
+  fetched and parsed before anything is truncated: BIS returns 251KB for a
+  series whose last three observations were wanted, and SDMX's own
+  `lastNObservations` would have asked for 5KB. Output is capped; memory and
+  latency are not.
 - **`limit` binds evenly, not by importance.** The budget is split max-min
   fair across the series in a response, so nothing is clipped while there is
   room and a short series hands its surplus to a long one. Once it does bind,
