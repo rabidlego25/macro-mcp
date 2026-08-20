@@ -34,7 +34,6 @@ UNDECLARED_URLS = [
     "https://api.hkma.gov.hk/public/market-data-and-statistics/daily/x",
     "https://api.data.gov.my/data-catalogue?id=cpi_headline",
     "https://api.gleif.org/api/v1/lei-records?filter=x",
-    "https://api.frankfurter.app/latest?from=EUR",
 ]
 
 

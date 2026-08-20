@@ -78,13 +78,34 @@ def test_multi_country_query_groups_into_one_series_per_country():
     assert {s["key"]["REF_AREA"] for s in out["series"]} == {"JP", "US"}
 
 
+def _one(out):
+    return dict(out["series"][0]["observations"])
+
+
 def test_fx_conventions_differ():
     """The reason convention is a required argument rather than a default."""
-    avg = fx.period_rate("JPY", "2024-01", "2024-01", "average")["rates"]["2024-01"]
-    eop = fx.period_rate("JPY", "2024-01", "2024-01", "end_of_period")["rates"]["2024-01"]
+    avg = _one(fx.period_rate("JPY", "2024-01", "2024-01", "average"))["2024-01"]
+    eop = _one(fx.period_rate("JPY", "2024-01", "2024-01", "end_of_period"))["2024-01"]
+    assert abs(eop - avg) > 0.5
     assert avg == pytest.approx(159.458, abs=0.01)
     assert eop == pytest.approx(160.19, abs=0.01)
-    assert abs(eop - avg) > 0.5
+
+
+def test_a_cross_rate_is_derived_and_says_so():
+    """The ECB publishes no USD/JPY rate. This one is JPY/EUR over USD/EUR, and
+    the response has to say that rather than pass it off as a published rate."""
+    got = fx.spot("USD", "JPY", "2024-01-05")
+    assert got["derived"] is True and "publishes no USD/JPY" in got["note"]
+    usd = _one(fx.period_rate("USD", "2024-01-05", "2024-01-05", "average", "D"))
+    jpy = _one(fx.period_rate("JPY", "2024-01-05", "2024-01-05", "average", "D"))
+    assert got["rate"] == pytest.approx(jpy["2024-01-05"] / usd["2024-01-05"])
+
+
+def test_a_weekend_returns_the_last_publication_day():
+    """2024-01-06 was a Saturday; reference rates are TARGET business days."""
+    got = fx.spot("EUR", "USD", "2024-01-06")
+    assert got["date"] == "2024-01-05"
+    assert "not a publication day" in got["note_date"]
 
 
 def test_entity_search_finds_native_script_names():

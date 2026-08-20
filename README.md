@@ -19,7 +19,10 @@ each provider codes countries differently. This takes a different route.
 - **LEI as the join key.** GLEIF covers 2.8M entities across 200+ jurisdictions,
   free, including the ownership graph. Tickers and CIKs do not travel.
 - **Rate conventions are explicit.** Converting flows at an end-of-period rate is
-  a silent error, so the convention is a required argument, not a default.
+  a silent error, so the convention is a required argument, not a default. The
+  ECB quotes everything against the euro, so a pair without EUR is a cross
+  derived from two fixings; the response says so rather than presenting it as a
+  published rate.
 - **No translation layer.** SDMX names are multilingual and providers ship English
   in the same response, so search matches every localization and returns English
   where it exists. `crops` finds ISTAT's `Coltivazioni`; `chomage` finds INSEE's
@@ -62,8 +65,8 @@ metadata is never returned whole.
 | `find_entity` | GLEIF search by legal name |
 | `get_entity` | Look up one LEI |
 | `entity_ownership` | Direct parent, ultimate parent, direct children |
-| `fx_spot` | Daily ECB reference rate |
-| `fx_period_rate` | Average or end-of-period rate |
+| `fx_spot` | One day's ECB euro reference rate, marked when derived |
+| `fx_period_rate` | Average or end-of-period rate, in the same shape as `fetch_data` |
 
 The same restraint applies to data. A flat row per observation repeats the whole
 key on every row, which on a 16-dimension flow is around 450 wasted bytes an

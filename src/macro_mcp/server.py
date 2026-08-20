@@ -125,16 +125,23 @@ def entity_ownership(lei: str) -> dict:
 
 @mcp.tool()
 def fx_spot(base: str, quote: str, date: str = "") -> dict:
-    """Daily ECB reference rate. Omit date for the latest."""
+    """ECB euro reference rate: how many `quote` buy one `base`. Omit date for
+    the latest.
+
+    These are a 14:15 CET fixing on TARGET business days, not a traded spot
+    rate, and a closed day returns the last publication before it. Every ECB
+    rate is quoted against the euro, so a pair without EUR is a cross derived
+    from two fixings — the response marks it "derived": true. Report that."""
     return fx.spot(base, quote, date or None)
 
 
 @mcp.tool()
 def fx_period_rate(currency: str, start: str, end: str, convention: str = "average",
-                   freq: str = "M") -> dict:
-    """EUR rates by convention: "average" to convert flows, "end_of_period" for
-    stocks. Dates are ISO, e.g. 2024-01."""
-    return fx.period_rate(currency, start, end, convention, freq)
+                   freq: str = "M", limit: int = 500) -> dict:
+    """Euro reference rates by convention: "average" to convert flows (GDP,
+    revenue), "end_of_period" for stocks (debt, balance sheet). Dates are ISO,
+    e.g. 2024-01. Returns the same shape as fetch_data."""
+    return fx.period_rate(currency, start, end, convention, freq, limit)
 
 
 def main() -> None:
