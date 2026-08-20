@@ -13,13 +13,15 @@ Prints a SECTIONS block to paste into `hkma.py`, and a summary to stderr.
 
 import re
 import sys
-import time
 from collections import defaultdict
 
 from macro_mcp import cache, hkma
 
 DOCS = "https://apidocs.hkma.gov.hk/documentation/market-data-and-statistics/"
-PAUSE = 0.25  # HKMA starts answering 502 when asked in parallel
+
+# The 4/s this once paced itself at now lives in transport.HOSTS, where the
+# server obeys it too. HKMA starts answering 502 when asked in parallel, and it
+# does not distinguish a script from a session.
 
 
 def _page(url: str) -> str:
@@ -66,7 +68,6 @@ def main() -> None:
                 keep[section].append(slug)
             else:
                 dropped += 1
-            time.sleep(PAUSE)
         print(f"{len(keep[section]):>4} kept  {section}", file=sys.stderr)
 
     total = sum(len(v) for v in keep.values())

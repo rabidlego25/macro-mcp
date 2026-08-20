@@ -126,6 +126,29 @@ The data patterns are declared first because the first match wins and BIS puts
 `/data/dataflow/` in its *data* URLs, which the structure patterns would
 otherwise claim. Set `MACRO_MCP_NO_CACHE=1` to bypass caching entirely.
 
+## Pacing and retries
+
+Every request goes through one transport adapter that bounds how hard a
+provider is asked and absorbs the failures that are not answers.
+
+- **Per host, not per provider.** Four requests in flight at once by default,
+  and no delay. HKMA is the exception at one at a time, 4/s: it started
+  answering 502 on every path after eight parallel requests and did not recover
+  for minutes.
+- **Transient statuses are retried** — 429, 500, 502, 503, 504 — three attempts
+  with exponential backoff and jitter, so ISTAT's intermittent 500s no longer
+  reach the agent as errors. A 404 is an answer and is not repeated, and
+  neither is a TLS failure — UY110's self-signed certificate will not verify on
+  the second attempt either.
+- **`Retry-After` is honoured, and held against the whole host.** A 429 is
+  addressed to this client rather than to the request that drew it, so
+  everything queued behind it waits too.
+
+The adapter sits below the cache, so a cached read neither waits nor spends a
+slot. The state is per process: two servers on one machine do not coordinate,
+and the shared User-Agent means a provider throttling it throttles every
+install at once.
+
 ## Tests
 
 ```bash
@@ -161,10 +184,6 @@ Defects and constraints in this server, as distinct from properties of the data
   request budget before it knows which vintages carry the key, so asking for five
   can leave fewer readable; those appear under `no_data` rather than being topped
   up, since the alternative is an unbounded number of calls to a slow service.
-- **HKMA has to be asked one request at a time.** It began returning 502 on every
-  path after eight parallel requests during this work and did not recover for
-  some minutes. `scripts/hkma_catalogue.py` paces itself at 4 requests a second
-  for that reason. Nothing enforces this at runtime.
 - **HKMA datasets are searchable only by slug.** It publishes no titles through
   the API, so `find_dataflows` matches `hk-interbank-ir-daily` and not the words
   a person would use for it. Its quarterly datasets also report the month the
@@ -173,9 +192,13 @@ Defects and constraints in this server, as distinct from properties of the data
 - **The disk cache only grows.** Entries expire after a week but nothing prunes
   or vacuums the SQLite file, which reached 96MB here across a few live runs.
   Delete `$XDG_CACHE_HOME/macro-mcp` when it gets large.
-- **No retries on the request path.** `scripts/probe.py` retries once, because
-  recording a dropped connection as a missing endpoint is permanent; ordinary
-  `fetch_data` does not, so ISTAT's intermittent 500s reach the agent as errors.
+- **Pacing is per process and the User-Agent is shared.** Two servers on one
+  machine, or two installs anywhere, do not coordinate, so the limits in
+  `transport.HOSTS` bound one client rather than the traffic a provider
+  actually sees. Nothing here can fix that; a hosted deployment would have to.
+- **A paced host is a slow host.** HKMA is asked one request at a time, so
+  reading several of its datasets in one turn now costs at least 250ms each
+  rather than going out together. That is the trade the 502s bought.
 - **`limit` binds evenly, not by importance.** The budget is split max-min
   fair across the series in a response, so nothing is clipped while there is
   room and a short series hands its surplus to a long one. Once it does bind,

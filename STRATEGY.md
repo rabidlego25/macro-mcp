@@ -209,8 +209,13 @@ are the better first cohort.
   **Done 2026-08-20.** The budget is now shared across series and hoisting is
   decided before truncation, so a clipped response can no longer read as a
   complete one.
-- Per-host rate limiting and backoff. A shared User-Agent across many users is a
-  single point of failure; one provider blocking it breaks everyone at once.
+- ~~Per-host rate limiting and backoff.~~ **Done 2026-08-20.** One transport
+  adapter now carries every request: a concurrency cap per host, HKMA paced at
+  the 4/s that stopped its 502s, transient statuses retried with jittered
+  backoff, and `Retry-After` held against the whole host rather than the one
+  request that drew it. It bounds a single process, so it does not solve the
+  shared User-Agent — that needs the hosted deployment, where the footprint is
+  measurable and attributable.
 - **Start the daily snapshot** for providers DBnomics does not cover, and where
   its repos have stalled. Cheap, boring, and the clock does not restart.
 - **Clone the DBnomics history** before doing anything else with it — it is a

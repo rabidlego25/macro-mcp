@@ -8,6 +8,9 @@ cost again from scratch.
 Observations are never served from cache: `*/data/*` is the SDMX REST data path
 on every provider here, BBK included, and it is pinned to expire immediately.
 Stale metadata is a minor annoyance; a stale exchange rate is a wrong answer.
+
+The session built here is also where pacing and retries are mounted, so every
+caller gets them by virtue of asking for the session at all — see transport.
 """
 
 import os
@@ -15,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from sdmx.session import Session
+
+from . import transport
 
 TTL = 7 * 24 * 3600
 
@@ -53,15 +58,22 @@ def session() -> Session:
     dataflow list would let them pass against a provider that has since moved.
     """
     if os.environ.get("MACRO_MCP_NO_CACHE") == "1":
-        return _identify(Session(timeout=TIMEOUT))
+        return _prepare(Session(timeout=TIMEOUT))
     p = path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    return _identify(Session(timeout=TIMEOUT, backend="sqlite", cache_name=str(p),
-                             urls_expire_after=EXPIRY))
+    return _prepare(Session(timeout=TIMEOUT, backend="sqlite", cache_name=str(p),
+                            urls_expire_after=EXPIRY))
 
 
-def _identify(s: Session) -> Session:
-    """SingStat rejects the default python-requests agent with a 403, and
-    naming the client is the courteous thing to do besides."""
+def _prepare(s: Session) -> Session:
+    """Name the client, and put every request through the paced transport.
+
+    SingStat rejects the default python-requests agent with a 403, and naming
+    the client is the courteous thing to do besides. The adapter is mounted
+    rather than wrapped around the session so the cache is consulted first: a
+    cached read should not queue behind a live one.
+    """
     s.headers["User-Agent"] = USER_AGENT
+    for prefix in ("http://", "https://"):
+        s.mount(prefix, transport.Adapter())
     return s
