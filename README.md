@@ -177,9 +177,18 @@ install at once.
 ## Tests
 
 ```bash
-uv run pytest                      # offline, ~0.2s
-MACRO_MCP_LIVE=1 uv run pytest     # adds the network suite, ~30s
+uv run pytest                                        # offline, ~1s
+MACRO_MCP_LIVE=1 uv run pytest -m "not revisable"    # + structure, ~70s
+MACRO_MCP_LIVE=1 uv run pytest -m revisable          # what the data did
 ```
+
+The live suite is split because its two halves mean opposite things. Unmarked
+tests assert structure — a flow exists, a key resolves, a period joins — and a
+failure means a provider moved or this server broke. Tests marked `revisable`
+assert that a number is still the number it was, and a failure there means a
+CPI was rebased or a national account revised: the provider doing its job, and
+the event this project exists to surface. They run as separate CI jobs, and
+only the first can fail the build.
 
 The offline suite replays saved responses in `tests/fixtures/`. Every case in it
 was a real failure, and each asserts a value rather than the absence of an

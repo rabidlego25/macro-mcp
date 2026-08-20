@@ -27,6 +27,9 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
+markers = [
+    "revisable: pins a value a provider may legitimately revise or rebase; a failure is news about the data, not a defect",
+]
 
 [dependency-groups]
 dev = [

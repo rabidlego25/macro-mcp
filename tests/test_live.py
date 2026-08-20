@@ -1,7 +1,21 @@
 """Network tests against the real services. Opt in with MACRO_MCP_LIVE=1.
 
-Values are historical and therefore stable; a change here means the provider
-moved, renamed something, or revised the series.
+Two kinds of assertion live here and they mean opposite things, so they are
+separated by the `revisable` marker rather than run together.
+
+Unmarked, the default: structure. A flow exists, a key resolves, a period
+joins, a date range binds. These are stable, and a failure means the provider
+moved or renamed something, or this server broke. Fail loudly.
+
+Marked `revisable`: a number is still the number it was. A CPI is rebased, a
+national account is revised, a vintage lands — and the assertion goes red
+because the provider did its job. Running these on a schedule and treating red
+as breakage teaches you to ignore the suite, in a project whose whole subject
+is that revisions happen quietly. Run them apart, and read a failure as news
+about the data rather than about the code:
+
+    uv run pytest -m "not revisable"   # must pass
+    uv run pytest -m revisable         # reports what moved
 """
 
 import os
@@ -97,6 +111,17 @@ def test_singstat_serves_singapore_cpi_on_the_shared_grammar():
 
     out = api.fetch("SINGSTAT", annual["id"], {"SERIES": "1"}, "2020", "2024")
     obs = dict(out["series"][0]["observations"])
+    assert [p for p in obs] == ["2020", "2021", "2022", "2023", "2024"]
+    assert out["units"] == {"UNIT": "Index"}
+
+
+@pytest.mark.revisable
+def test_singapore_cpi_still_reads_as_it_did():
+    """Rebasing moves every number in the series at once."""
+    hits = api.dataflows("SINGSTAT", "consumer price index", 40)["shown"]
+    annual = next(h for h in hits if h["name"].endswith("Annual"))
+    obs = dict(api.fetch("SINGSTAT", annual["id"], {"SERIES": "1"}, "2020", "2024")
+               ["series"][0]["observations"])
     assert obs["2024"] == pytest.approx(100.0)      # 2024 is the base year
     assert obs["2020"] == pytest.approx(85.794, abs=0.01)
 
@@ -139,13 +164,22 @@ def test_imf_codes_resolve_through_the_concept_not_the_dimension():
     assert api.search_codes("IMF_DATA", "CPI", "COUNTRY", "japan", 3)["shown"][0]["id"] == "JPN"
 
 
-def test_imf_japan_cpi_arrives_with_joinable_periods():
-    key = {"COUNTRY": "JPN", "INDEX_TYPE": "CPI", "COICOP_1999": "_T",
+_JP_CPI = {"COUNTRY": "JPN", "INDEX_TYPE": "CPI", "COICOP_1999": "_T",
            "TYPE_OF_TRANSFORMATION": "IX", "FREQUENCY": "M"}
-    out = api.fetch("IMF_DATA", "CPI", key, "2024-01", "2024-03")
-    assert out["series"][0]["observations"] == [["2024-01", pytest.approx(106.9)],
-                                                ["2024-02", pytest.approx(106.9)],
-                                                ["2024-03", pytest.approx(107.2)]]
+
+
+def test_imf_japan_cpi_arrives_with_joinable_periods():
+    """IMF writes months as 2024-M01, which joins against nothing."""
+    out = api.fetch("IMF_DATA", "CPI", _JP_CPI, "2024-01", "2024-03")
+    assert [p for p, _ in out["series"][0]["observations"]] == [
+        "2024-01", "2024-02", "2024-03"]
+
+
+@pytest.mark.revisable
+def test_imf_japan_cpi_still_reads_as_it_did():
+    out = api.fetch("IMF_DATA", "CPI", _JP_CPI, "2024-01", "2024-03")
+    assert [v for _, v in out["series"][0]["observations"]] == [
+        pytest.approx(106.9), pytest.approx(106.9), pytest.approx(107.2)]
 
 
 def test_hkma_hibor_overnight_spiked_at_the_2024_year_end():
@@ -194,9 +228,20 @@ def test_imf_vintages_show_a_revision_the_current_flow_hides():
     out = vintages.compare("IMF_DATA", "ANEA", key, "2024", "2024")
     assert out["vintages"][-1] == "ANEA"
     revision = next(r for r in out["revisions"] if r["period"] == "2024")
+    assert revision["between"][1] == "ANEA"
+    assert revision["was"] != revision["now"]
+
+
+@pytest.mark.revisable
+def test_the_size_of_japans_gdp_revision_is_still_what_it_was():
+    """`now` is read from the current flow, so this goes red the next time the
+    IMF revises — which is the event the tool exists to surface, not a bug."""
+    key = {"COUNTRY": "JPN", "INDICATOR": "B1GQ", "PRICE_TYPE": "V",
+           "TYPE_OF_TRANSFORMATION": "XDC", "FREQUENCY": "A"}
+    out = vintages.compare("IMF_DATA", "ANEA", key, "2024", "2024")
+    revision = next(r for r in out["revisions"] if r["period"] == "2024")
     assert revision["was"] == pytest.approx(634226000000000.0)
     assert revision["now"] == pytest.approx(634751300000000.0)
-    assert revision["between"][1] == "ANEA"
 
 
 def test_a_flow_without_vintages_is_not_silently_treated_as_having_none():
