@@ -82,7 +82,14 @@ yields goes from 173KB to 6KB.
 
 `range` is the span actually returned, so truncation is visible rather than
 inferred from a `total` that does not match. Truncation keeps the most recent
-observations. Periods with no value are omitted and counted under `empty`.
+observations, and `limit` is shared across the series in the response rather
+than spent oldest-first over the whole of it — otherwise a two-country request
+came back with only the country whose history ran latest. The split is max-min
+fair, so a short series hands its unused share to a long one and a response that
+fits under the budget is never clipped. Where there are more series than the
+budget can seat, the ones left out are named under `dropped_series` instead of
+going missing. Periods with no value are omitted and
+counted under `empty`.
 
 ## Point in time
 
@@ -140,14 +147,12 @@ renamed something, or revised a series.
 Defects and constraints in this server, as distinct from properties of the data
 (below) and gaps in provider coverage (further below). Roughly worst first.
 
-- **Truncation can delete whole series, and then hide that it did.** `_pack`
-  keeps the most recent `limit` observations across the *whole* response, not
-  per series, so a request spanning two series can lose the older one entirely.
-  Worse, once it is gone the surviving series' key is invariant, so it is
-  hoisted into `key` and the response reads as though only that series was ever
-  asked for. `total` and `truncated` are the only clues and neither names what
-  was dropped. Narrow `start`/`end`, or raise `limit`, when querying several
-  series at once. This one is a bug rather than a trade-off.
+- **A tight `limit` still costs resolution, though no longer whole series.**
+  The budget is split max-min fair, so nothing is clipped while there is room
+  and short series hand their surplus to long ones — but once the budget really
+  does bind, every long series is cut to the same depth regardless of which one
+  the question was about. Narrow `start`/`end`, or raise `limit`, when querying
+  several series at once.
 - **Observations are never cached, so every fetch pays full price.** That is
   deliberate — see Caching — but it means repeated identical queries re-download
   each time. It bites hardest on HKMA: a bound coarser than the endpoint's own

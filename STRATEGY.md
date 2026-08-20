@@ -17,8 +17,7 @@ already exists publicly and is unusable — making it usable is the opening.
 What exists today is a competent MCP server over ~24 working SDMX providers plus
 Singapore, Hong Kong, GLEIF and ECB FX. It is roughly a day's engineering of real
 value on top of an open-source SDMX library, with unusually good discipline about
-failure modes. It has no users, no remote, no packaging, and one known
-correctness bug at time of writing.
+failure modes. It has no users, no remote and no packaging.
 
 It is not the company. It is the distribution wedge and the proof that the
 founder understands the problem domain. Treating it as the product is the main
@@ -206,7 +205,10 @@ are the better first cohort.
 ## Plan
 
 **Now, before anything else (days)**
-- Fix the truncation bug — silent data loss in the core response path.
+- ~~Fix the truncation bug — silent data loss in the core response path.~~
+  **Done 2026-08-20.** The budget is now shared across series and hoisting is
+  decided before truncation, so a clipped response can no longer read as a
+  complete one.
 - Per-host rate limiting and backoff. A shared User-Agent across many users is a
   single point of failure; one provider blocking it breaks everyone at once.
 - **Start the daily snapshot** for providers DBnomics does not cover, and where

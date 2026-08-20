@@ -259,6 +259,20 @@ def _period(p) -> str:
     return _MONTH.sub(r"\1-\2", str(p))
 
 
+def _shares(lengths: list[int], limit: int) -> list[int]:
+    """Split a budget of observations across series, max-min fair.
+
+    An even split clips a long series even when the whole response would have
+    fitted, so a series shorter than its share hands the surplus back to the
+    longer ones. Nothing is truncated while the budget still has room.
+    """
+    shares, rest = [0] * len(lengths), limit
+    for taken, i in enumerate(sorted(range(len(lengths)), key=lambda i: lengths[i])):
+        shares[i] = min(lengths[i], rest // (len(lengths) - taken))
+        rest -= shares[i]
+    return shares
+
+
 def _pack(df, limit: int) -> dict:
     """Hoist the invariant part of the key and nest the rest as series.
 
@@ -270,30 +284,49 @@ def _pack(df, limit: int) -> dict:
     empty = int(df["value"].isna().sum())
     df = df[df["value"].notna()].sort_values("TIME_PERIOD", kind="stable")
     total = len(df)
-    truncated = total > limit
-    if truncated:
-        df = df.tail(limit)  # most recent; `range` states what came back
 
+    # Hoisting is decided before truncation. Deciding it afterwards let a series
+    # that truncation had deleted entirely make the survivor's key look
+    # invariant, so a two-series request came back reading as though only one
+    # series had ever been asked for.
     dims = [c for c in df.columns if c not in ("TIME_PERIOD", "value")]
     fixed = {d: str(df[d].iloc[0]) for d in dims if df[d].nunique() == 1} if total else {}
     vary = [d for d in dims if d not in fixed]
 
-    def obs(g):
-        return [[_period(p), float(v)] for p, v in zip(g["TIME_PERIOD"], g["value"])]
+    def skey(k):
+        return dict(zip(vary, (str(x) for x in (k if isinstance(k, tuple) else (k,)))))
 
     if not total:
-        series = []
+        groups = []
     elif vary:
-        series = [{"key": dict(zip(vary, (str(x) for x in (k if isinstance(k, tuple) else (k,))))),
-                   "observations": obs(g)} for k, g in df.groupby(vary, sort=False)]
+        groups = [(skey(k), g) for k, g in df.groupby(vary, sort=False)]
     else:
-        series = [{"key": {}, "observations": obs(df)}]
+        groups = [({}, df)]
+
+    # The budget is shared out per series rather than spent oldest-first across
+    # the whole response, which dropped entire series off the old end and then
+    # reported only that some total had been exceeded.
+    kept, dropped = groups[:limit], [k for k, _ in groups[limit:]]
+    shares = _shares([len(g) for _, g in kept], limit)
+    tails = [(k, g.tail(n)) for (k, g), n in zip(kept, shares)]
+    shown = sum(len(g) for _, g in tails)
+
+    series = [{"key": k,
+               "observations": [[_period(p), float(v)]
+                                for p, v in zip(g["TIME_PERIOD"], g["value"])]}
+              for k, g in tails]
 
     out = {"key": fixed, "columns": ["period", "value"], "series": series, "total": total}
-    if total:
-        out["range"] = [_period(df["TIME_PERIOD"].iloc[0]), _period(df["TIME_PERIOD"].iloc[-1])]
-    if truncated:
-        out["truncated"] = f"most recent {limit} of {total}; narrow start/end for the rest"
+    if shown:
+        periods = [str(p) for _, g in tails for p in g["TIME_PERIOD"]]
+        out["range"] = [_period(min(periods)), _period(max(periods))]
+    if shown < total:
+        out["truncated"] = (f"most recent {shown} of {total}" if len(groups) == 1 else
+                            f"most recent {shown} of {total}, at most "
+                            f"{max(shares, default=0)} per series"
+                            ) + "; narrow start/end for the rest"
+    if dropped:
+        out["dropped_series"] = {"count": len(dropped), "keys": dropped[:10]}
     if empty:
         out["empty"] = empty
     return out

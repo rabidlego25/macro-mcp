@@ -97,3 +97,77 @@ def test_annual_and_quarterly_periods_are_left_alone():
     """Only the month infix is non-standard; rewriting more would corrupt."""
     out = _pack(frame([("Q", "2024-Q1", 1.0), ("Q", "2024-Q2", 2.0)]), 500)
     assert [p for p, _ in out["series"][0]["observations"]] == ["2024-Q1", "2024-Q2"]
+
+
+def test_truncation_shares_the_budget_out_rather_than_deleting_a_whole_series():
+    """The budget was spent oldest-first across the whole response, so the older
+    series vanished — and with it gone, REF_AREA was invariant and got hoisted,
+    leaving a response that read as though only US had ever been asked for."""
+    df = frame([("M", "JP", f"2023-{m:02d}", float(m)) for m in range(1, 13)] +
+               [("M", "US", f"2024-{m:02d}", float(m)) for m in range(1, 13)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 4)
+
+    assert out["key"] == {"FREQ": "M"}
+    assert "REF_AREA" not in out["key"]
+    assert [s["key"] for s in out["series"]] == [{"REF_AREA": "JP"}, {"REF_AREA": "US"}]
+    assert out["series"][0]["observations"] == [["2023-11", 11.0], ["2023-12", 12.0]]
+    assert out["series"][1]["observations"] == [["2024-11", 11.0], ["2024-12", 12.0]]
+    assert out["range"] == ["2023-11", "2024-12"]
+    assert out["total"] == 24
+    assert "most recent 4 of 24, at most 2 per series" in out["truncated"]
+
+
+def test_a_dimension_that_only_truncation_made_invariant_is_not_hoisted():
+    """One series is short enough to survive whole; the other is clipped to
+    nothing under the old rule. Hoisting is decided on the frame as asked for."""
+    df = frame([("M", "JP", "2023-01", 1.0),
+                ("M", "US", "2024-01", 2.0), ("M", "US", "2024-02", 3.0)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 2)
+    assert out["key"] == {"FREQ": "M"}
+    assert [s["key"] for s in out["series"]] == [{"REF_AREA": "JP"}, {"REF_AREA": "US"}]
+
+
+def test_more_series_than_budget_names_what_it_dropped_instead_of_hiding_it():
+    df = frame([("M", f"C{i}", "2024-01", float(i)) for i in range(5)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 3)
+    assert [s["key"]["REF_AREA"] for s in out["series"]] == ["C0", "C1", "C2"]
+    assert out["dropped_series"] == {"count": 2, "keys": [{"REF_AREA": "C3"},
+                                                          {"REF_AREA": "C4"}]}
+    assert out["total"] == 5
+
+
+def test_every_series_keeps_at_least_one_observation_when_the_budget_is_tight():
+    """Two series and a budget of two: one observation each, not both from one."""
+    df = frame([("M", "JP", f"2024-{m:02d}", float(m)) for m in range(1, 13)] +
+               [("M", "US", f"2024-{m:02d}", float(m)) for m in range(1, 13)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 2)
+    assert [s["observations"] for s in out["series"]] == [[["2024-12", 12.0]]] * 2
+    assert "dropped_series" not in out
+
+
+def test_a_budget_smaller_than_the_series_count_drops_rather_than_overshoots():
+    """`limit` stays a hard bound on observations, so two series cannot both be
+    served under a budget of one. The one left out is named."""
+    df = frame([("M", "JP", "2024-01", 1.0), ("M", "US", "2024-01", 2.0)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 1)
+    assert [s["key"] for s in out["series"]] == [{"REF_AREA": "JP"}]
+    assert out["dropped_series"] == {"count": 1, "keys": [{"REF_AREA": "US"}]}
+
+
+def test_a_short_series_lends_its_unused_share_to_a_long_one():
+    """An even split clipped a 400-observation series to 250 under limit=500
+    because a 10-observation series held the other half of a budget it could
+    not use — truncating a response that would have fitted whole."""
+    df = frame([("M", "JP", f"{2000 + m // 12}-{m % 12 + 1:02d}", float(m))
+                for m in range(400)] +
+               [("M", "US", f"2024-{m:02d}", float(m)) for m in range(1, 11)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 500)
+    assert [len(s["observations"]) for s in out["series"]] == [400, 10]
+    assert "truncated" not in out
+    assert out["total"] == 410
