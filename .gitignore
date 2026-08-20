@@ -8,3 +8,16 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Scratch from probing providers by hand. Fifteen of these were committed at
+# the root — 87MB, most of it one CPI dump — which is what an install actually
+# costs someone before they see a line of the server.
+#
+# Anchored to the root on purpose. Bare *.json would also swallow a fixture
+# somebody meant to add, and a file that silently fails to be committed is the
+# same class of quiet failure this repo exists to complain about.
+/*.csv
+/*.json
+/*.xml
+/*.html
+/*.txt
