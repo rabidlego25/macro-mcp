@@ -14,6 +14,7 @@ per call does not need one.
 import asyncio
 import json
 import re
+from importlib.metadata import version
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -47,6 +48,13 @@ def payload(tool: str, /, **arguments) -> dict:
 
 
 # --- what the agent is told --------------------------------------------------
+
+def test_the_server_reports_the_installed_version_to_a_client():
+    """It reported "" until a stdio probe showed it. A client displays this,
+    and the answer to "which build is this" cannot be a second copy of the
+    number in pyproject, so it is read from the installed metadata."""
+    assert server.mcp.version == version("macro-mcp") != ""
+
 
 def test_the_published_tools_are_the_twelve_and_no_others():
     """A tool added or renamed here changes what every agent sees, so the list

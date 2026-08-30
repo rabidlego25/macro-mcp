@@ -5,9 +5,18 @@ Discovery is progressive: providers -> dataflows -> describe_flow -> search_code
 hundreds of entries.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from mcp.server import MCPServer
 
 from . import entities, fx, sdmx_api, vintages
+
+try:
+    VERSION = version("macro-mcp")
+except PackageNotFoundError:
+    # Running from a source tree that was never installed. A client shows this
+    # string, so say which case it is rather than reporting a version.
+    VERSION = "0+unknown"
 
 INSTRUCTIONS = """Free international macro, entity and FX data. No API keys.
 
@@ -42,7 +51,7 @@ those, the dataflow id has to be known up front.
 Resolve companies by LEI before joining anything across jurisdictions.
 """
 
-mcp = MCPServer("macro-mcp", instructions=INSTRUCTIONS)
+mcp = MCPServer("macro-mcp", instructions=INSTRUCTIONS, version=VERSION)
 
 
 @mcp.tool()
