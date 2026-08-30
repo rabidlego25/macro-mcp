@@ -210,6 +210,13 @@ was a real failure, and each asserts a value rather than the absence of an
 exception, because these paths fail by returning a plausible wrong answer with a
 200 status rather than by raising.
 
+The tools are exercised through `call_tool`, not by calling the functions
+underneath, so argument validation, the published schema and the JSON an agent
+actually parses are all in the path. What those tools publish — the names, which
+arguments may be omitted, what they then default to, and the docstrings
+themselves — is asserted literally, because every part of it can drift from the
+code beneath without failing anything else.
+
 The recorded responses are mounted under a real `sdmx1` session rather than fed
 to the parser directly, so a test drives URL construction, the Accept header,
 `sdmx1` and the packing here together. That is where several of the failures
@@ -256,9 +263,10 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A paced host is a slow host.** HKMA is asked one request at a time, so
   reading several of its datasets in one turn now costs at least 250ms each
   rather than going out together. That is the trade the 502s bought.
-- **`server.py` has no offline test.** Every tool signature and docstring an
-  agent actually reads executes zero lines under the offline suite, so nothing
-  checks the contract the agent is handed. The layers below it are covered.
+- **Nothing starts the server.** All twelve tools are now driven offline
+  through `call_tool`, but `main()`, `mcp.run()` and the stdio transport are
+  not, so a fault in the packaging or the handshake surfaces first when a
+  client connects rather than in a test.
 - **A cold fetch downloads the structure twice.** `sdmx1` resolves a dict key
   by fetching the DSD itself, and `_unit_labels` then fetches it again through
   `_dsd`, which does not know about the first: the same 497KB URL twice on ECB,
