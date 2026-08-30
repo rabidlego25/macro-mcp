@@ -10,14 +10,15 @@ work," it says so.
 Public macro data is free, fragmented and silently overwritten; the durable
 business is not access to it but the **point-in-time record and correctness
 layer** that agents need in order to be trusted with it. The point-in-time record
-already exists publicly and is unusable — making it usable is the opening.
+already exists publicly and is unusable, and making it usable is the opening.
 
 ## Honest starting position
 
 What exists today is a competent MCP server over ~24 working SDMX providers plus
 Singapore, Hong Kong, GLEIF and ECB FX. It is roughly a day's engineering of real
 value on top of an open-source SDMX library, with unusually good discipline about
-failure modes. It has no users, no remote and no packaging.
+failure modes. It is public, installs in one line through `uvx`, and has an eval
+suite that says where it fails. It has no users and no hosted deployment.
 
 It is not the company. It is the distribution wedge and the proof that the
 founder understands the problem domain. Treating it as the product is the main
@@ -42,7 +43,7 @@ archive, it is public, and anyone can clone it.
 
 So the moat is not possession of the data. **The moat is that the data is
 currently unusable.** It sits as nine years of heterogeneous provider-format
-files — SDMX-ML, TSV, bespoke JSON, one shape per provider — in git repos with
+files (SDMX-ML, TSV, bespoke JSON, one shape per provider) in git repos with
 no query layer, no harmonization, and no exposure through DBnomics' own API.
 Turning that into a queryable point-in-time service is substantial engineering,
 and it is the same harmonization work that makes the live product good.
@@ -57,11 +58,11 @@ Bootstrapping from public history means launching with nine years of revisions o
 day one. That is the difference between promising a moat and demonstrating one.
 
 **Still worth running your own capture, from now.** DBnomics does not cover
-everything (HKMA and SingStat are absent), some repos stall — Eurostat's has been
-untouched since January 2026 — and depending on a third party for the core asset
+everything (HKMA and SingStat are absent), some repos stall (Eurostat's has been
+untouched since January 2026), and depending on a third party for the core asset
 is not a strategy. Bootstrap from theirs; do not rely on theirs.
 
-FRED/ALFRED proves the demand exists — economists have used it for two decades.
+FRED/ALFRED proves the demand exists: economists have used it for two decades.
 It does not, as previously claimed here, prove nobody has done it internationally.
 
 ## Problem
@@ -85,7 +86,7 @@ confident, well-formatted, wrong answers. That gap is the product surface.
 
 - Agents are entering financial workflows, where a wrong number has consequences
   and "the model said so" is not a defence.
-- The incumbents in macro data — Macrobond, Haver, CEIC — are seat-licensed
+- The incumbents in macro data, Macrobond, Haver and CEIC, are seat-licensed
   desktop products built for humans, not agent-native. **[verify]** their current
   pricing and whether any has shipped an agent interface.
 - MCP is becoming a default integration surface, which lowers distribution cost
@@ -101,7 +102,7 @@ confident, well-formatted, wrong answers. That gap is the product surface.
 | **Archive** | Daily vintages of every series captured | Moat. Compounds. Paid. |
 | **Guardrails** | Comparability checks, FX conventions, provenance | Product. What people pay for. |
 
-The open-source layer is genuine and stays free — it is the distribution channel
+The open-source layer is genuine and stays free: it is the distribution channel
 and the reason anyone trusts the rest. The archive and guardrails are hosted,
 paid, and impossible to replicate from the repo alone.
 
@@ -138,8 +139,8 @@ startup position, and it should be described that way rather than dressed up.
 
 ## Market
 
-**[verify all of this before it goes in a deck.]** The category — Macrobond,
-Haver Analytics, CEIC, plus macro modules inside Bloomberg and LSEG — appears to
+**[verify all of this before it goes in a deck.]** The category, Macrobond,
+Haver Analytics, CEIC and the macro modules inside Bloomberg and LSEG, appears to
 support several hundred million in annual revenue, at seat prices in the tens of
 thousands. Macrobond was reported to have taken majority investment from
 Francisco Partners at a valuation around the high hundreds of millions
@@ -157,9 +158,9 @@ company fundamentals, filings and micro data. Say this explicitly to investors;
 
 ## Business model
 
-1. **Free** — open-source MCP server, live data, no archive. Distribution.
-2. **Pro** — hosted API: vintages, guardrails, provenance. Usage or seat priced.
-3. **Enterprise** — audit trail, SLA, private deployment, custom providers.
+1. **Free.** Open-source MCP server, live data, no archive. Distribution.
+2. **Pro.** Hosted API: vintages, guardrails, provenance. Usage or seat priced.
+3. **Enterprise.** Audit trail, SLA, private deployment, custom providers.
 
 Usage-based pricing on the archive fits agent consumption better than seats, and
 undercuts the incumbent model rather than imitating it.
@@ -184,28 +185,28 @@ are the better first cohort.
 
 ## Competition
 
-- **Macrobond, Haver, CEIC** — deep harmonization and long vintage history.
+- **Macrobond, Haver, CEIC.** Deep harmonization and long vintage history.
   Expensive, human-first, slow-moving. **[verify]** their agent posture.
-- **Bloomberg, LSEG, FactSet** — broader and richer; macro is one module. Will
+- **Bloomberg, LSEG, FactSet.** Broader and richer; macro is one module. Will
   not move quickly on agent-native interfaces, but can.
-- **FRED/ALFRED** — free, excellent, US-only. The proof of demand and the model
+- **FRED/ALFRED.** Free, excellent, US-only. The proof of demand and the model
   to generalize internationally.
-- **DBnomics** — the most important competitor, and previously underrated here.
+- **DBnomics.** The most important competitor, and previously underrated here.
   Public, free, ~96 providers, and quietly the largest international vintage
   archive that exists (see research log). Backed by CEPREMAP, French public
-  research **[verify]**, which suggests no commercial motive — but that cuts both
+  research **[verify]**, which suggests no commercial motive, but that cuts both
   ways. Either they will not productize this and the opening is real, or nobody
   has asked them to because the demand is not there. **Resolve this by talking to
   users, not by reasoning about it.** They are also the natural acquirer,
   partner, or the party who kills the idea by shipping a vintage API first.
-- **Trading Economics** — closest commercial cheap analogue. **[verify]**.
-- **The providers themselves** — could publish vintages at any time. IMF already
+- **Trading Economics.** Closest commercial cheap analogue. **[verify]**.
+- **The providers themselves.** Could publish vintages at any time. IMF already
   does, partially. This is a real and underrated threat.
 
 ## Plan
 
 **Now, before anything else (days)**
-- ~~Fix the truncation bug — silent data loss in the core response path.~~
+- ~~Fix the truncation bug, silent data loss in the core response path.~~
   **Done 2026-08-20.** The budget is now shared across series and hoisting is
   decided before truncation, so a clipped response can no longer read as a
   complete one.
@@ -214,7 +215,7 @@ are the better first cohort.
   the 4/s that stopped its 502s, transient statuses retried with jittered
   backoff, and `Retry-After` held against the whole host rather than the one
   request that drew it. It bounds a single process, so it does not solve the
-  shared User-Agent — that needs the hosted deployment, where the footprint is
+  shared User-Agent, which needs the hosted deployment, where the footprint is
   measurable and attributable.
 - ~~Make `limit` bound the download, not just the response.~~ **Done
   2026-08-30.** `lastNObservations` is sent to every SDMX provider, so a
@@ -222,19 +223,38 @@ are the better first cohort.
   ECB rather than 1.4MB. It costs the exact `total`: once the cap binds, the
   response reports a floor, because counting the rest means downloading it. It
   buys nothing on an already-narrow query, and nothing at all on the structure
-  metadata, which is the larger half of a cold fetch — 3.5MB per IMF DSD
-  against 4KB of observations. Bounding **that** is the next one.
+  metadata, which is the larger half of a cold fetch: 3.5MB per IMF DSD against
+  4KB of observations. Bounding **that** is still open.
+
+  **Corrected 2026-08-30.** The cap was also losing data. ILO applies
+  `lastNObservations` by dropping series, returning 13 of 39 at the default
+  limit and 39 at 2001, so a default fetch against it came back a third
+  complete with a 200 and nothing to show for it. The first capped fetch of a
+  provider is now counted against a `detail=nodata` request and the verdict
+  recorded against the cap it was measured at. Worth writing down as a pattern
+  rather than an incident: every optimisation in this server has turned out to
+  need a check that it did not change the answer, and each one was found by
+  looking rather than by failing.
 - **Start the daily snapshot** for providers DBnomics does not cover, and where
   its repos have stalled. Cheap, boring, and the clock does not restart.
-- **Clone the DBnomics history** before doing anything else with it — it is a
+- **Clone the DBnomics history** before doing anything else with it. It is a
   third party's infrastructure and could go private, be pruned, or stop. Cloning
   is free and reversible; losing it is not. Resolve the licence question in
   parallel, but do not let that block the clone of public data.
 
 **Weeks 1–6**
-- Evals: 20 real questions, agent-run, every dead end logged and fixed. Publish
-  them. This is the gate; nothing ships to strangers before it passes.
-- Package and publish so install is one line.
+- ~~Evals: 20 real questions, agent-run, every dead end logged and fixed.
+  Publish them.~~ **Done 2026-08-30**, and they are in `evals/`. Thirteen of
+  twenty answered, three partly, four blocked. Almost nothing crashed: the
+  server returned 200 and a well-formed response and the agent was stuck
+  anyway, which is the failure this project is about. Fourteen findings, seven
+  fixed. The run also paid for itself sideways, since designing one of the
+  fixes is what turned up the ILO defect above. Re-running is the gate for
+  anything that changes the tool surface.
+- ~~Package and publish so install is one line.~~ **Partly done 2026-08-30.**
+  Public, and `uvx --from git+https://github.com/rabidlego25/macro-mcp` runs it
+  with nothing cloned. Still not on PyPI, which is what would make it
+  `uvx macro-mcp` and settle the name.
 - Verify data licensing per provider (see Risks). Non-negotiable before hosting.
 - Add FRED/ALFRED. Drop the keyless rule; keep keyless as the default path.
 
@@ -260,7 +280,7 @@ are the better first cohort.
   **no declared licence** and the project's own legal page returns a 400, so
   reuse rights there are genuinely unclear and cannot be assumed. **Resolve
   before hosting anything, per provider and for DBnomics separately.**
-- **Someone already keeps vintages internationally — confirmed, they do.** This
+- **Someone already keeps vintages internationally. Confirmed: they do.** This
   was the cheapest question in the first draft and it came back against the
   thesis. The idea survives in weakened form (see the corrected insight), but
   anyone diligencing this will find DBnomics within an hour. Lead with it.
@@ -288,26 +308,29 @@ Worth stating plainly, since the rest of the document argues the other way.
 The category is real but not obviously large. The incumbents are decades old and
 their customers are sticky and few. The wedge is free software that anyone can
 fork. The moat takes years to become meaningful, which is exactly the shape
-venture timelines handle badly — an asset that is worth little at month 18, when
+venture timelines handle badly: an asset that is worth little at month 18, when
 the Series A conversation happens.
 
 The honest version of the pitch is: *this is a slow-compounding data asset with a
 software business attached, in a category that supports hundreds of millions
 rather than billions, and its defensibility arrives late.* Some investors want
 precisely that. Most do not. Pick accordingly, and do not disguise the shape of
-it — it will surface in diligence, and it is more persuasive said first.
+it, because it will surface in diligence and is more persuasive said first.
 
 ## Open questions to resolve before raising
 
 1. ~~Does anyone already keep international vintages?~~ **Answered: yes, DBnomics
    does. See research log.**
-2. What do provider licences permit for storage and redistribution, per provider —
+2. What do provider licences permit for storage and redistribution, per provider,
    and what, if anything, do the DBnomics repos permit? Now the top risk.
-3. Do the evals pass? Can an agent actually answer 20 real questions end to end?
-4. Why has DBnomics not productized nine years of vintages — no commercial motive,
+3. ~~Do the evals pass? Can an agent actually answer 20 real questions end to
+   end?~~ Answered 2026-08-30: thirteen of twenty, three partly, four blocked.
+   The interesting half is that the failures were legible responses rather than
+   errors. See `evals/`.
+4. Why has DBnomics not productized nine years of vintages? No commercial motive,
    or no demand? Distinguishing these two is the most valuable thing anyone can
    learn about this market, and it can only be learned from users.
-5. Who felt this pain enough to pay — and is that a list of 200 firms or 20,000?
+5. Who felt this pain enough to pay, and is that a list of 200 firms or 20,000?
 6. Adoption or revenue? It changes what gets built first, and the answer should
    be decided rather than deferred.
 
@@ -316,11 +339,11 @@ it — it will surface in diligence, and it is more persuasive said first.
 Findings recorded with method and date so they can be re-run and challenged.
 Everything below was measured, not recalled.
 
-**2026-08-10 — Does anyone keep international vintages? Yes.**
+**2026-08-10. Does anyone keep international vintages? Yes.**
 
 - DBnomics stores raw provider data in ~96 public git repositories at
   `git.nomics.world/dbnomics-source-data`, oldest created 2017-04-12.
-- Commits are titled "Download data from provider" — these are periodic snapshots
+- Commits are titled "Download data from provider": these are periodic snapshots
   of source-format data, i.e. vintages.
 - Cadence on an active repo (INSEE, project 45): 100 commits across 26 distinct
   days, 2026-07-16 to 2026-08-10. Roughly four a day, daily.
@@ -329,7 +352,7 @@ Everything below was measured, not recalled.
   is uneven and cannot be assumed live.
 - DBnomics' own API exposes no vintage or revision fields. WEO appears as dated
   editions (`WEO:2008-04` onward) only because IMF versions that publication
-  itself — not because the API surfaces vintages generally.
+  itself, not because the API surfaces vintages generally.
 - No LICENSE file in the source repos; `db.nomics.world/legal` returns 400.
 
 *Conclusion:* the data exists publicly and is not usable as data. That is the
