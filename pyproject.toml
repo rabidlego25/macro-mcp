@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MCP server for free international macro, entity and FX data"
 readme = "README.md"
 authors = [
-    { name = "rabidlego25", email = "geneatabb@outlook.com" }
+    { name = "Austin Tabb", email = "91136090+rabidlego25@users.noreply.github.com" }
 ]
 requires-python = ">=3.10"
 dependencies = [
