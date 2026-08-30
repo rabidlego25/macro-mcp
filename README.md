@@ -120,13 +120,15 @@ going missing. Periods with no value are omitted and counted under `empty`.
 
 `limit` bounds the download as well as the response. The provider is asked for
 only the newest `limit + 1` observations per series, through SDMX's own
-`lastNObservations`, so three observations from BIS cost 11KB rather than
-1.8MB, and `compare_vintages` over Japan's national accounts 921KB and 2.5s
-rather than 62MB and 33s. The extra one is what keeps truncation visible: asked
-for exactly `limit`, a clipped series comes back the same length as a complete
-one. When a series does arrive at the cap, `total` is a floor rather than the
-length of the series, and the `truncated` note says so — counting the rest
-would mean downloading it.
+`lastNObservations`. Three observations cost 10KB from BIS rather than 314KB,
+3KB from ECB's daily reference rates rather than 1.4MB, and 4KB from the
+Bundesbank 10-year Bund yield rather than 2.3MB; twelve months of Japanese CPI
+cost 53KB and 4.4s from IMF rather than 1.5MB and 12.1s.
+
+The extra one is what keeps truncation visible: asked for exactly `limit`, a
+clipped series comes back the same length as a complete one. When a series does
+arrive at the cap, `total` is a floor rather than the length of the series, and
+the `truncated` note says so — counting the rest would mean downloading it.
 
 ## Point in time
 
@@ -270,7 +272,18 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A query that matches nothing costs two requests.** A service that answers
   200 to a parameter it does not understand looks exactly like a key that
   matched nothing, so an empty capped response is checked against an uncapped
-  one before it is believed. Both are cheap when the query really is empty.
+  one before it is believed. Both are cheap when the query really is empty, but
+  `compare_vintages` pays it once per vintage that does not carry the key.
+- **A narrow query gains nothing from the cap and pays a little.** It bounds
+  the history, so a key already pinned to one series inside a one-year window
+  is the same size either way: comparing four vintages of Japanese GDP moves
+  21.3KB of observations before the cap and 25.3KB after, the difference being
+  the extra request above.
+- **Nothing bounds the structure metadata, which is the larger half.** That
+  same vintage comparison spends 31MB on five DSDs of around 3.5MB each against
+  21KB of observations. It is paid once a week rather than once a call — see
+  Caching — but on a cold process the download cap addresses the smaller part
+  of the bill.
 - **The cap does not reach the non-SDMX adapters.** Singapore and Hong Kong
   have no such parameter, so `limit` still bounds only their responses.
 - **`limit` binds evenly, not by importance.** The budget is split max-min

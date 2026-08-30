@@ -217,11 +217,13 @@ are the better first cohort.
   shared User-Agent — that needs the hosted deployment, where the footprint is
   measurable and attributable.
 - ~~Make `limit` bound the download, not just the response.~~ **Done
-  2026-08-30.** `lastNObservations` is sent to every SDMX provider, so BIS
-  answers a three-observation question in 11KB rather than 1.8MB and
-  `compare_vintages` on Japanese GDP in 921KB and 2.5s rather than 62MB and
-  33s. It costs the exact `total`: once the cap binds, the response reports a
-  floor, because counting the rest means downloading it.
+  2026-08-30.** `lastNObservations` is sent to every SDMX provider, so a
+  three-observation question costs 10KB of BIS rather than 314KB, and 3KB of
+  ECB rather than 1.4MB. It costs the exact `total`: once the cap binds, the
+  response reports a floor, because counting the rest means downloading it. It
+  buys nothing on an already-narrow query, and nothing at all on the structure
+  metadata, which is the larger half of a cold fetch — 3.5MB per IMF DSD
+  against 4KB of observations. Bounding **that** is the next one.
 - **Start the daily snapshot** for providers DBnomics does not cover, and where
   its repos have stalled. Cheap, boring, and the clock does not restart.
 - **Clone the DBnomics history** before doing anything else with it — it is a

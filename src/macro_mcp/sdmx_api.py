@@ -560,10 +560,10 @@ def _bounded(provider: str, send, params: dict, cap: int):
 
     Returns the message and the cap that shaped it, or None where the provider
     was asked without one. `limit` used to bound the response after the whole
-    history had been downloaded and parsed: BIS shipped 1.9MB, ECB 4.9MB and
-    IMF 14.5MB over 15 seconds to answer questions about the last few
-    observations. Asking the service to do the truncating costs a query
-    parameter and returns 5-10KB.
+    history had been downloaded and parsed: BIS shipped 314KB, ECB 1.4MB and
+    Bundesbank 2.3MB to answer questions about the last three observations.
+    Asking the service to do the truncating costs a query parameter and returns
+    3-10KB. It buys nothing on a query that was already narrow.
 
     An empty response is checked rather than believed. A service that answers
     200 to a parameter it does not understand looks exactly like a query that
