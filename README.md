@@ -31,11 +31,31 @@ each provider codes countries differently. This takes a different route.
 
 ## Install
 
+Nothing to clone and no keys to obtain. Point an MCP client at the repository
+and [uv](https://docs.astral.sh/uv/) does the rest:
+
+```json
+{
+  "mcpServers": {
+    "macro": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/rabidlego25/macro-mcp", "macro-mcp"]
+    }
+  }
+}
+```
+
+`uvx` resolves and caches the environment on the first run, and that run is
+slow: four minutes and 306MB here, nearly all of it downloading pandas and
+lxml. Every start after it was under two seconds. Run the command once in a
+terminal before registering it, since a client that starts servers with a
+timeout will give up long before the first one finishes.
+
+To work on the server rather than use it, clone and run from the checkout:
+
 ```bash
 uv sync
 ```
-
-Register with an MCP client:
 
 ```json
 {
@@ -210,7 +230,10 @@ was a real failure, and each asserts a value rather than the absence of an
 exception, because these paths fail by returning a plausible wrong answer with a
 200 status rather than by raising.
 
-The tools are exercised through `call_tool`, not by calling the functions
+One test spawns the server as its own process and speaks JSON-RPC to it over
+stdin, which is the only thing that covers `main()`, the stdio transport and
+the handshake. It is how the empty `serverInfo.version` was found. The rest of
+the tools are exercised through `call_tool`, not by calling the functions
 underneath, so argument validation, the published schema and the JSON an agent
 actually parses are all in the path. What those tools publish is asserted
 literally: the names, which arguments may be omitted, what they then default
@@ -263,10 +286,6 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A paced host is a slow host.** HKMA is asked one request at a time, so
   reading several of its datasets in one turn now costs at least 250ms each
   rather than going out together. That is the trade the 502s bought.
-- **Nothing starts the server.** All twelve tools are now driven offline
-  through `call_tool`, but `main()`, `mcp.run()` and the stdio transport are
-  not, so a fault in the packaging or the handshake surfaces first when a
-  client connects rather than in a test.
 - **A cold fetch downloads the structure twice.** `sdmx1` resolves a dict key
   by fetching the DSD itself, and `_unit_labels` then fetches it again through
   `_dsd`, which does not know about the first: the same 497KB URL twice on ECB,
