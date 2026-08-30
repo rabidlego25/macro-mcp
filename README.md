@@ -118,6 +118,16 @@ fits under the budget is never clipped. Where there are more series than the
 budget can seat, the ones left out are named under `dropped_series` instead of
 going missing. Periods with no value are omitted and counted under `empty`.
 
+`limit` bounds the download as well as the response. The provider is asked for
+only the newest `limit + 1` observations per series, through SDMX's own
+`lastNObservations`, so three observations from BIS cost 11KB rather than
+1.8MB, and `compare_vintages` over Japan's national accounts 921KB and 2.5s
+rather than 62MB and 33s. The extra one is what keeps truncation visible: asked
+for exactly `limit`, a clipped series comes back the same length as a complete
+one. When a series does arrive at the cap, `total` is a floor rather than the
+length of the series, and the `truncated` note says so — counting the rest
+would mean downloading it.
+
 ## Point in time
 
 A series read today is as-revised, not as-known, which quietly gives a backtest
@@ -243,11 +253,26 @@ Defects and constraints in this server, as distinct from properties of the data
   that are exceptions to the SDMX spine. The spine that 27 of 29 providers
   traverse has no recorded response anywhere in the repo, so its tests are
   either live or stubbed.
-- **`limit` bounds the response, not the download.** The whole payload is
-  fetched and parsed before anything is truncated: BIS returns 251KB for a
-  series whose last three observations were wanted, and SDMX's own
-  `lastNObservations` would have asked for 5KB. Output is capped; memory and
-  latency are not.
+- **The download is capped per series, not per response.** `lastNObservations`
+  bounds each series the key matches, so a wildcard over 300 series still
+  fetches `limit + 1` observations for every one of them. `limit` bounds what
+  comes back; only the key bounds what is fetched.
+- **`total` is a floor once the cap binds.** It used to be the length of the
+  series, which was free only because the whole series had been downloaded.
+  Now it counts what arrived, and a series that came back at the cap has older
+  observations nobody counted. The `truncated` note says which of the two it
+  is; there is no way to report the exact length without paying for it again.
+- **Not every provider honours the cap.** It is sent to all of them. BIS, ECB,
+  IMF, Bundesbank, OECD and ILO truncate at the source; UNSD and UNICEF
+  returned the same bytes with the parameter as without, so they appear to
+  ignore it and still ship the whole series. None refused it, but one that does
+  is asked again without it and remembered for the life of the process.
+- **A query that matches nothing costs two requests.** A service that answers
+  200 to a parameter it does not understand looks exactly like a key that
+  matched nothing, so an empty capped response is checked against an uncapped
+  one before it is believed. Both are cheap when the query really is empty.
+- **The cap does not reach the non-SDMX adapters.** Singapore and Hong Kong
+  have no such parameter, so `limit` still bounds only their responses.
 - **`limit` binds evenly, not by importance.** The budget is split max-min
   fair across the series in a response, so nothing is clipped while there is
   room and a short series hands its surplus to a long one. Once it does bind,

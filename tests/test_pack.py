@@ -171,3 +171,42 @@ def test_a_short_series_lends_its_unused_share_to_a_long_one():
     assert [len(s["observations"]) for s in out["series"]] == [400, 10]
     assert "truncated" not in out
     assert out["total"] == 410
+
+
+def test_a_series_that_arrives_at_the_cap_reports_total_as_a_floor():
+    """The provider was asked for four and sent four, so there is a fifth it was
+    not asked for. `total` is no longer the length of the series, and a response
+    that said "of 4" would read as though it were."""
+    df = frame([("M", f"2024-{m:02d}", float(m)) for m in range(1, 5)])
+    out = _pack(df, 3, cap=4)
+    assert out["total"] == 4
+    assert "most recent 3 of at least 4" in out["truncated"]
+    assert "total is a floor" in out["truncated"]
+
+
+def test_a_series_that_arrives_short_of_the_cap_is_counted_exactly():
+    """Three back from a request for four is the whole series, and saying so is
+    the reason the cap is limit + 1 rather than limit."""
+    df = frame([("M", f"2024-{m:02d}", float(m)) for m in range(1, 4)])
+    out = _pack(df, 3, cap=4)
+    assert out["total"] == 3
+    assert "truncated" not in out
+
+
+def test_the_cap_counts_the_empty_observations_the_provider_counted():
+    """Two of the four sent carry no value. Measuring the cap against the two
+    that survived would read a clipped series as a complete one."""
+    df = frame([("D", "2024-01-01", float("nan")), ("D", "2024-01-02", 1.0),
+                ("D", "2024-01-03", float("nan")), ("D", "2024-01-04", 2.0)])
+    out = _pack(df, 3, cap=4)
+    assert out["total"] == 2 and out["empty"] == 2
+    assert "most recent 2 of at least 2" in out["truncated"]
+
+
+def test_the_cap_is_per_series_so_one_long_series_makes_the_total_a_floor():
+    """lastNObservations bounds each series, not the response. JP came back at
+    the cap and US came back whole; the total covers both, so it is a floor."""
+    df = frame([("M", "JP", f"2024-{m:02d}", float(m)) for m in range(1, 5)] +
+               [("M", "US", "2024-01", 1.0)], dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 3, cap=4)
+    assert "most recent 3 of at least 5, at most 2 per series" in out["truncated"]

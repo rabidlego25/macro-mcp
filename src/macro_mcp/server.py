@@ -81,7 +81,11 @@ def fetch_data(provider: str, flow: str, key: dict, start: str = "", end: str = 
     [period, value] pairs grouped into "series" by whichever dimensions vary.
     "units" says what the numbers are measured in, including any multiplier —
     read it before comparing or converting. "range" is the period span actually
-    returned; periods with no value are omitted and counted under "empty"."""
+    returned; periods with no value are omitted and counted under "empty".
+    "total" counts what the provider sent, which is the whole series unless
+    "truncated" says it is a floor: only the newest observations are fetched,
+    so a longer history exists and was not counted. Narrow start/end to read
+    it."""
     return sdmx_api.fetch(provider, flow, key, start or None, end or None, limit)
 
 

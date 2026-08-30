@@ -71,6 +71,31 @@ def test_bis_japan_policy_rate_turns_positive_in_march_2024():
     assert by_period["2024-03"] == pytest.approx(0.05)
 
 
+def test_limit_bounds_the_download_and_not_only_the_response():
+    """ECB's daily EXR is 7,143 observations and 4.9MB. Answering a three-day
+    question used to cost all of it; lastNObservations makes it 6KB.
+
+    `total` is what arrives, so it is the measurement: if a provider stops
+    honouring the parameter this reads in the thousands rather than failing to
+    parse, and nothing else would notice.
+    """
+    key = {"FREQ": "D", "CURRENCY": "JPY", "CURRENCY_DENOM": "EUR",
+           "EXR_TYPE": "SP00", "EXR_SUFFIX": "A"}
+    out = api.fetch("ECB", "EXR", key, limit=3)
+    assert len(out["series"][0]["observations"]) == 3
+    assert out["total"] <= 4, "the whole history was downloaded to return three"
+    assert "of at least" in out["truncated"]
+
+
+def test_a_series_shorter_than_the_budget_is_still_counted_exactly():
+    """The cap is limit + 1, so a complete series arrives short of it and says
+    how long it is rather than reporting a floor."""
+    out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP"},
+                    "2024-01", "2024-03")
+    assert out["total"] == 3
+    assert "truncated" not in out
+
+
 def test_multi_country_query_groups_into_one_series_per_country():
     out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP+US"},
                     "2024-01", "2024-03")

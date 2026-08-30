@@ -329,14 +329,36 @@ def _identify(d: dict, units) -> dict:
     return {"key": key, "units": unit} if unit else {"key": key}
 
 
-def _pack(df, limit: int, units: tuple = ()) -> dict:
+def _at_cap(df, cap: int | None, units: tuple) -> bool:
+    """Whether the provider-side cap is what ended a series, rather than the
+    series ending.
+
+    A series that came back at exactly the cap has older observations the
+    request declined to fetch; one that came back shorter is complete, and the
+    response can say how long it is. Counted before empties are dropped,
+    because the provider counted them too.
+    """
+    if not cap:
+        return False
+    dims = [c for c in df.columns
+            if c not in ("TIME_PERIOD", "value") and c not in units]
+    sizes = df.groupby(dims, sort=False).size() if dims else [len(df)]
+    return any(n >= cap for n in sizes)
+
+
+def _pack(df, limit: int, units: tuple = (), cap: int | None = None) -> dict:
     """Hoist the invariant part of the key and nest the rest as series.
 
     A row-per-observation frame repeats the whole key on every row, which on a
     16-dimension flow costs ~450 redundant bytes an observation. Empty
     observations are dropped rather than serialised: NaN is not valid JSON, and
     a daily series is roughly a third weekends.
+
+    `cap` is the per-series bound the provider was given, when it was given
+    one. It is what makes `total` a floor rather than a count, so it has to
+    reach the response text.
     """
+    at_cap = _at_cap(df, cap, units)
     empty = int(df["value"].isna().sum())
     df = df[df["value"].notna()].sort_values("TIME_PERIOD", kind="stable")
     total = len(df)
@@ -382,11 +404,15 @@ def _pack(df, limit: int, units: tuple = ()) -> dict:
     if shown:
         periods = [str(p) for _, g in tails for p in g["TIME_PERIOD"]]
         out["range"] = [_period(min(periods)), _period(max(periods))]
-    if shown < total:
-        out["truncated"] = (f"most recent {shown} of {total}" if len(groups) == 1 else
-                            f"most recent {shown} of {total}, at most "
-                            f"{max(shares, default=0)} per series"
-                            ) + "; narrow start/end for the rest"
+    if shown < total or at_cap:
+        per = ("" if len(groups) == 1 else
+               f", at most {max(shares, default=0)} per series")
+        out["truncated"] = (
+            f"most recent {shown} of at least {total}{per}; only the newest "
+            f"{cap} per series were fetched, so total is a floor rather than "
+            "the series length — narrow start/end for the rest"
+            if at_cap else
+            f"most recent {shown} of {total}{per}; narrow start/end for the rest")
     if dropped:
         out["dropped_series"] = {"count": len(dropped),
                                  "keys": [_split(k, units)[0] for k in dropped[:10]]}
@@ -499,6 +525,68 @@ def _frame(msg, provider: str, flow: str):
     return df[keep], tuple(kept)
 
 
+# Providers that will not take lastNObservations. Learned rather than listed,
+# for the reason _NEEDS_GENERIC is, but the cost of a wrong guess runs the other
+# way: a refused request is a cheap error page and the retry is the full
+# download, where a wrong generic header wastes the download first. So the cap
+# goes to everyone until a provider refuses it.
+_NO_LAST_N: set[str] = set()
+
+
+def _refused(exc) -> bool:
+    """Whether the service rejected the request rather than failed to serve it.
+
+    A 4xx that is not 429 is this client having composed something the provider
+    would not accept, which is what an unsupported parameter looks like. A 5xx
+    has already been retried in transport and says the service is unwell, so
+    dropping the cap would not help and remembering it would be wrong.
+    """
+    r = getattr(exc, "response", None)
+    return r is not None and 400 <= r.status_code < 500 and r.status_code != 429
+
+
+def _observations(msg) -> int:
+    """How many observations a data message carries, at either level."""
+    n = 0
+    for ds in getattr(msg, "data", []) or []:
+        n += len(getattr(ds, "obs", []) or [])
+        for obs in (getattr(ds, "series", {}) or {}).values():
+            n += len(obs)
+    return n
+
+
+def _bounded(provider: str, send, params: dict, cap: int):
+    """Fetch, asking for only the newest `cap` observations per series.
+
+    Returns the message and the cap that shaped it, or None where the provider
+    was asked without one. `limit` used to bound the response after the whole
+    history had been downloaded and parsed: BIS shipped 1.9MB, ECB 4.9MB and
+    IMF 14.5MB over 15 seconds to answer questions about the last few
+    observations. Asking the service to do the truncating costs a query
+    parameter and returns 5-10KB.
+
+    An empty response is checked rather than believed. A service that answers
+    200 to a parameter it does not understand looks exactly like a query that
+    matched nothing, and the difference matters: one is a wrong answer and the
+    other is the right one. The uncapped request settles it, and is cheap in
+    the case that it is genuinely empty.
+    """
+    if provider in _NO_LAST_N:
+        return send(params), None
+    try:
+        msg = send({**params, "lastNObservations": cap})
+    except Exception as exc:
+        if not _refused(exc):
+            raise
+        msg = None
+    if msg is not None and _observations(msg):
+        return msg, cap
+    bare = send(params)
+    if _observations(bare):
+        _NO_LAST_N.add(provider)  # only once the cap has been shown to cost data
+    return bare, None
+
+
 def fetch(provider: str, flow: str, key: dict, start: str | None = None,
           end: str | None = None, limit: int = 500) -> dict:
     if provider in NATIVE:
@@ -510,9 +598,12 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
         params["startPeriod"] = start
     if end:
         params["endPeriod"] = end
-    if provider == "BBK":
-        msg = bundesbank.data(flow, key, params)
-    else:
-        msg = _data(provider, flow, key, params)
+    send = ((lambda p: bundesbank.data(flow, key, p)) if provider == "BBK" else
+            (lambda p: _data(provider, flow, key, p)))
+    # One more than the budget, so a series that outruns it still arrives long
+    # enough to say so. Asked for exactly `limit`, a truncated series would be
+    # indistinguishable from a complete one and the response would report no
+    # truncation at all.
+    msg, cap = _bounded(provider, send, params, limit + 1)
     df, units = _frame(msg, provider, flow)
-    return _pack(df, limit, units)
+    return _pack(df, limit, units, cap)
