@@ -17,6 +17,39 @@ def _get(path: str, **params):
     return r.json()
 
 
+def _norm(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _total(payload: dict):
+    return payload.get("meta", {}).get("pagination", {}).get("total")
+
+
+def _score(query: str, hit: dict) -> tuple:
+    """How well a hit answers the name that was asked for.
+
+    GLEIF's fulltext order is not relevance and it is what an agent reads first.
+    "Banco Santander" returns 41 hits led by an unrelated company that matches
+    because Santander is also a Spanish city, and filtered to ES the bank is
+    the last of five, behind a mutual society and a foundation. Nothing in a
+    record separates them except the names, so the ordering has to come from
+    there: an exact legal name first, then one that starts with the query, then
+    one that merely contains it, and the shorter name breaks a tie because the
+    parent company is rarely the longest name matching it.
+    """
+    q = _norm(query)
+    best = 3
+    for name in (hit["name"], *hit["other_names"]):
+        n = _norm(name)
+        if n == q:
+            best = min(best, 0)
+        elif n.startswith(q):
+            best = min(best, 1)
+        elif q in n:
+            best = min(best, 2)
+    return (best, len(hit["name"]))
+
+
 def _summary(rec: dict) -> dict:
     a = rec["attributes"]
     e = a["entity"]
@@ -39,13 +72,19 @@ def search(name: str, country: str | None = None, limit: int = 10) -> dict:
     トヨタ自動車株式会社 and a Latin-script legal-name filter returns nothing.
 
     Matching is broad, so check country and status on every hit before using it.
+    Hits are ranked by how closely each name matches, not in GLEIF's own order:
+    fulltext also matches addresses, and Santander is a city as well as a bank.
     """
-    p = {"filter[fulltext]": name, "page[size]": limit}
+    # Ask for more than will be returned, in one request, because ranking a
+    # page cannot rescue an entity that was never on it: "Banco Santander"
+    # matches 41 records and the bank is not among the first five.
+    p = {"filter[fulltext]": name, "page[size]": min(max(limit * 5, 25), 200)}
     if country:
         p["filter[entity.legalAddress.country]"] = country.upper()
     d = _get("lei-records", **p)
-    return {"total": d.get("meta", {}).get("pagination", {}).get("total"),
-            "hits": [_summary(r) for r in d["data"]]}
+    hits = sorted((_summary(r) for r in d["data"]),
+                  key=lambda h: _score(name, h))
+    return {"total": _total(d), "hits": hits[:limit]}
 
 
 def get(lei: str) -> dict:
@@ -78,8 +117,18 @@ def ownership(lei: str) -> dict:
     try:
         kids = _get(f"lei-records/{lei}/direct-children", **{"page[size]": 50})
         out["direct_children"] = [_summary(r) for r in kids["data"]]
+        # A list of 50 that is really the first 50 of 200 reads as the whole
+        # ownership tree, and the question this answers is usually whether a
+        # subsidiary exists somewhere. Say which of the two it is.
+        held = _total(kids)
+        out["direct_children_total"] = held
+        if held is not None and held > len(out["direct_children"]):
+            out["children_truncated"] = (
+                f"{len(out['direct_children'])} of {held} shown; GLEIF is asked "
+                "for one page and the rest were not fetched")
     except requests.HTTPError as exc:
         if not _absent(exc):
             raise
         out["direct_children"] = []
+        out["direct_children_total"] = 0
     return out

@@ -180,3 +180,34 @@ def test_bis_is_retried_with_the_generic_header_and_then_remembered(monkeypatch)
     after = [(u, a) for u, a in zip(bis.urls[before:], bis.accepts()[before:])
              if "/data/" in u]
     assert len(after) == 1 and "genericdata" in after[0][1]
+
+
+# --- what the evals found ----------------------------------------------------
+
+def test_a_two_word_search_matches_words_rather_than_a_phrase(spine):
+    """An eval asked IMF for 'national accounts' and got one hit, because the
+    flow it wanted is named 'National Economic Accounts'. Matching the phrase
+    as one substring reports a total that reads as authoritative."""
+    assert api.dataflows("ECB", "exchange rates")["total"] == 1
+    assert api.dataflows("ECB", "rates exchange")["total"] == 1
+    assert api.dataflows("ECB", "exchange nonsense")["total"] == 0
+
+
+def test_a_fetch_names_the_codes_it_returns(spine):
+    """JPY, EUR and SP00 are not an answer to what a series is. The labels come
+    off the DSD this fetch has already downloaded to resolve units."""
+    got = api.fetch("ECB", "EXR", JPY, limit=3)
+    assert got["names"]["CURRENCY"] == {"JPY": "Japanese yen"}
+    assert got["names"]["FREQ"] == {"D": "Daily"}
+    assert got["names"]["CURRENCY_DENOM"] == {"EUR": "Euro"}
+
+
+def test_naming_the_codes_costs_no_extra_request(spine):
+    """It reads the structure the unit labels already needed. If it cost a
+    request per fetch it would not be worth having."""
+    api.describe_flow("ECB", "EXR")
+    api.fetch("ECB", "EXR", JPY, limit=3)
+    before = len(spine.urls)
+    api.fetch("ECB", "EXR", JPY, limit=3)
+    assert spine.urls[before:] == [data_url(spine)]
+

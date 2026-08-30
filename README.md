@@ -128,8 +128,11 @@ Nothing else a provider attaches is returned. BIS ships around 2.5KB of
 compilation notes and source references per series, against a response format
 whose whole point is 6KB.
 
-`range` is the span actually returned, so truncation is visible rather than
-inferred from a `total` that does not match. Truncation keeps the most recent
+`names` gives the English label for every code in the response, so a series
+keyed `XDC` or `CP01` reads without another round trip. It comes off the
+structure the units already needed, and only the codes that actually appear are
+returned. `range` is the span actually returned, so truncation is visible
+rather than inferred from a `total` that does not match. Truncation keeps the most recent
 observations, and `limit` is shared across the series in the response rather
 than spent oldest-first over the whole of it. Otherwise a two-country request
 came back with only the country whose history ran latest. The split is max-min
@@ -250,6 +253,21 @@ fixtures of their own because each is an exception to it.
 
 The live suite pins historical values, so a failure means a provider moved,
 renamed something, or revised a series.
+
+## Evals
+
+Twenty questions a person would actually ask, run through the tools against
+live providers, with every call and response kept in `evals/log`. Thirteen were
+answered, three partly, four blocked, one of those because HKMA was down.
+
+Almost nothing crashed. The server returned 200 and a well-formed response and
+the agent was stuck anyway, which is the failure this project is about: an
+empty result that echoed nothing back, a 15-digit GDP figure with no currency
+attached, a search for "national accounts" that reported one hit and hid the
+flow, and a search for Banco Santander led by an unrelated company that matched
+the city. Six of the thirteen findings are fixed and verified against the live
+providers; `evals/README.md` lists what was fixed, what was only improved, and
+what still stands.
 
 ## Current problems and limitations
 

@@ -93,6 +93,19 @@ def test_the_fetch_docstring_says_that_a_total_can_be_a_floor():
     assert "a floor" in described and "Narrow start/end" in described
 
 
+def test_the_fetch_docstring_teaches_the_two_query_shapes_that_are_not_obvious():
+    """Both work and an eval found neither. A dimension takes several codes
+    joined by +, and one left out matches every code, which is the only way to
+    ask which countries a flow covers. Following the single-code example, an
+    agent pays for one download per country."""
+    described = published()["fetch_data"].description
+    assert '{"REF_AREA": "JP+XM"}' in described
+    assert "several codes joined by +" in described
+    assert "matches every code" in " ".join(described.split())
+    assert "leave the dimension out of the key" in " ".join(
+        server.INSTRUCTIONS.split())
+
+
 def test_the_arguments_an_agent_may_leave_out_are_the_optional_ones():
     """Requiring a search term would force a guess; making a provider optional
     would let one be omitted silently."""

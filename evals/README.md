@@ -179,6 +179,40 @@ it is stdout and not stderr. The README asserts the MCP SDK claims that
 descriptor and diverts it. Nothing tests the assertion, and if it is wrong the
 JSON-RPC stream is corrupted mid-session on the provider the README leads with.
 
+## What was fixed
+
+Each fix was verified by re-running the question against the live provider. The
+second pass is appended to the same log.
+
+| Finding | State | Evidence |
+|---|---|---|
+| 1. Empty response says nothing | Fixed | Echoes the key and says what to try. 91B to 488B, and the 91B was unusable. |
+| 2. Codes without labels | Fixed | Japan's GDP now carries `XDC: Domestic currency`; Singapore's CPI names series `1` as `All Items`; BIS names all 39 areas. |
+| 3. Entity search unranked | Partly | Unrelated companies are gone, but see below. |
+| 4. Substring search | Fixed | `"national accounts"` returns 11 flows including `ANEA`, was 1. |
+| 7. Undocumented query shapes | Fixed | `+` and the wildcard are in the `fetch_data` description and the instructions. |
+| 8. `direct_children` truncates silently | Fixed | Returns `direct_children_total`, and says so when a page was clipped. |
+
+Ranking is the one that did not fully work. Hits are now scored on the name
+rather than passed through in GLEIF's order, so `EDUARDO R FERNANDEZ PEREZ SL`
+no longer leads a search for Banco Santander. But the top hits are now the
+French and Dutch branches, both legally named "Banco Santander S.A.", and the
+Spanish parent is still not in the first five. Name matching cannot separate a
+parent from a branch; only the ownership graph can, and that is a request per
+candidate. The honest state is that the search is better and still cannot be
+trusted to return a group parent first.
+
+Not addressed, and still true:
+
+- **5.** A search returning 108 ILO flows has not narrowed anything.
+- **6.** No way to find a key that exists on a 15-dimension flow.
+- **9.** Vintages crowd out the flow they are vintages of.
+- **10.** `fx_period_rate` states less about provenance than `fx_spot`.
+- **11.** A provider outage is a raw HTTP string.
+- **12.** Aggregates in a codelist are unmarked.
+- **13.** BIS prints to stdout mid-call, and the claim that the SDK diverts it
+  is still untested.
+
 ## Running them again
 
 ```bash

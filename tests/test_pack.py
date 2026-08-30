@@ -66,10 +66,44 @@ def test_untruncated_responses_report_their_span_and_no_truncation_flag():
     assert "truncated" not in out and "empty" not in out
 
 
-def test_a_response_with_no_observations_stays_well_formed():
-    out = _pack(frame([("M", "2024-01", float("nan"))]), 500)
-    assert out == {"key": {}, "columns": ["period", "value"], "series": [],
-                   "total": 0, "empty": 1}
+def test_a_response_whose_observations_are_all_empty_says_which_case_it_is():
+    """The key matched and the values are missing, which is not the same as a
+    key that matched nothing. Both used to be an empty series list."""
+    out = _pack(frame([("M", "2024-01", float("nan"))]), 500, asked={"FREQ": "M"})
+    assert out["series"] == [] and out["total"] == 0 and out["empty"] == 1
+    assert out["note"] == "the key matched, but every observation in the period is empty."
+
+
+def test_a_key_that_matched_nothing_is_echoed_back_with_what_to_try():
+    """Found by an eval. A wrong code, an aggregate carrying no such series and
+    one empty code in a multi-code key all returned the same four fields, and
+    none of them named the key that had just failed: hoisting reads the key off
+    the frame, and an empty frame has no columns."""
+    out = _pack(frame([], dims=("COUNTRY",)), 500,
+                asked={"COUNTRY": "G998", "INDICATOR": "B1GQ"})
+    assert out["key"] == {"COUNTRY": "G998", "INDICATOR": "B1GQ"}
+    assert out["total"] == 0 and "empty" not in out
+    assert "Leave a dimension out of the key" in out["note"]
+
+
+def test_codes_are_returned_with_the_labels_the_response_already_knows():
+    """Also from an eval. TYPE_OF_TRANSFORMATION: XDC is where the currency of
+    a 15-digit number lives, and it arrived unexplained."""
+    df = frame([("M", "JP", "2024-01", 1.0), ("M", "US", "2024-02", 2.0)],
+               dims=("FREQ", "REF_AREA"))
+    out = _pack(df, 500, names={"FREQ": {"M": "Monthly", "A": "Annual"},
+                                "REF_AREA": {"JP": "Japan", "US": "United States",
+                                             "DE": "Germany"}})
+    assert out["names"] == {"FREQ": {"M": "Monthly"},
+                            "REF_AREA": {"JP": "Japan", "US": "United States"}}
+
+
+def test_only_the_codes_that_appear_are_named():
+    """A codelist can run to hundreds of entries. Returning it whole is the
+    thing describe_flow exists to avoid."""
+    out = _pack(frame([("M", "2024-01", 1.0)]), 500,
+                names={"FREQ": {c: c for c in "MQADWH"}})
+    assert out["names"] == {"FREQ": {"M": "M"}}
 
 
 def test_packing_a_wide_key_is_an_order_of_magnitude_smaller():

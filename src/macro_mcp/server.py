@@ -41,6 +41,10 @@ Cross-country comparisons break in predictable ways. Check each before reporting
   IMF is the exception: list_vintages and compare_vintages read what a figure
   said when it was published. Use them before claiming what was known at a date.
 
+One fetch_data call can cover several codes of a dimension (join them with +)
+or every code of it (leave the dimension out of the key). Use that rather than
+one call per country: each call is a separate download.
+
 Search in English regardless of the provider's language. Names are matched across
 every localization the provider publishes and returned in English where it exists,
 so "crops" finds an Italian dataflow named Coltivazioni.
@@ -86,15 +90,26 @@ def fetch_data(provider: str, flow: str, key: dict, start: str = "", end: str = 
     """Fetch observations. key maps dimension ids to codes, e.g.
     {"FREQ": "M", "CURRENCY": "USD"}.
 
+    A dimension takes several codes joined by +, so {"REF_AREA": "JP+XM"} asks
+    for both in one request rather than two. A dimension left out of the key
+    matches every code, which is how to ask which countries a flow covers:
+    fetch it with only FREQ pinned and read the series keys.
+
     Returns the invariant part of the key once under "key", and observations as
     [period, value] pairs grouped into "series" by whichever dimensions vary.
-    "units" says what the numbers are measured in, including any multiplier —
+    "names" gives the label for every code in the response, so a series keyed
+    XDC or CP01 can be read without asking search_codes again.
+    "units" says what the numbers are measured in, including any multiplier:
     read it before comparing or converting. "range" is the period span actually
     returned; periods with no value are omitted and counted under "empty".
     "total" counts what the provider sent, which is the whole series unless
     "truncated" says it is a floor: only the newest observations are fetched,
     so a longer history exists and was not counted. Narrow start/end to read
-    it."""
+    it.
+
+    An empty response echoes the key it was given and says so under "note".
+    Any single entry in the key can empty a result and they all look alike, so
+    drop a dimension to find which one."""
     return sdmx_api.fetch(provider, flow, key, start or None, end or None, limit)
 
 

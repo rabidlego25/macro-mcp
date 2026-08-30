@@ -38,8 +38,15 @@ def test_search_asks_for_fulltext_rather_than_a_legal_name_match(gleif):
     url = gleif.urls[-1]
     assert "filter%5Bfulltext%5D=Toyota+Motor" in url
     assert "filter%5Bentity.legalAddress.country%5D=JP" in url  # upper-cased
-    assert "page%5Bsize%5D=5" in url
     assert "legalName" not in url
+
+
+def test_more_hits_are_fetched_than_are_returned_so_ranking_has_something_to_do(gleif):
+    """One page in, the best five out. Ranking a page of five cannot rescue an
+    entity that was never on it, and "Banco Santander" matches 41 records
+    without the bank among the first five."""
+    entities.search("Toyota Motor", "JP", 5)
+    assert "page%5Bsize%5D=25" in gleif.urls[-1]
 
 
 def test_search_reports_the_provider_s_total_not_the_page_size(gleif):
@@ -110,3 +117,47 @@ def test_only_a_handful_of_aliases_are_returned(gleif, monkeypatch):
         "transliteratedOtherNames": [{"name": "Beispiel"}],
         "legalAddress": {"country": "DE"}, "status": "ACTIVE"}}}
     assert entities._summary(record)["other_names"] == [f"Alias {i}" for i in range(4)]
+
+
+# --- what the evals found ----------------------------------------------------
+
+def hit(name: str, *aliases: str) -> dict:
+    return {"name": name, "other_names": list(aliases)}
+
+
+def test_an_exact_name_outranks_one_that_merely_contains_the_query():
+    """An eval asked for "Banco Santander". GLEIF returned 41 hits led by
+    EDUARDO R FERNANDEZ PEREZ SL, which matches because Santander is a Spanish
+    city, and filtered to Spain the bank was the last of five."""
+    hits = [hit("EDUARDO R FERNANDEZ PEREZ SL"),
+            hit("FUNDACION BANCO SANTANDER"),
+            hit("BANCO SANTANDER S.A.", "BANCO DE SANTANDER SA."),
+            hit("MUTUALIDAD DE EMPLEADOS DEL BANCO SANTANDER")]
+    ranked = sorted(hits, key=lambda h: entities._score("Banco Santander", h))
+    assert [h["name"] for h in ranked] == [
+        "BANCO SANTANDER S.A.",                       # starts with the query
+        "FUNDACION BANCO SANTANDER",                  # contains it, shorter
+        "MUTUALIDAD DE EMPLEADOS DEL BANCO SANTANDER",
+        "EDUARDO R FERNANDEZ PEREZ SL"]               # no name match at all
+
+
+def test_a_name_matching_only_through_an_alias_still_ranks():
+    """Toyota's legal name is in Japanese, so the Latin name an agent types
+    reaches the record through otherNames or not at all."""
+    japanese = hit("トヨタ自動車株式会社", "Toyota Motor Corporation")
+    assert entities._score("Toyota Motor Corporation", japanese)[0] == 0
+    assert entities._score("Toyota Motor", japanese)[0] == 1
+
+
+def test_ownership_says_how_many_children_there_are(gleif):
+    """A list of 50 that is the first 50 of 200 reads as the whole tree. The
+    provider's own count is in the response and was being dropped."""
+    got = entities.ownership(TOYOTA)
+    assert got["direct_children_total"] == 11
+    assert len(got["direct_children"]) == 11
+    assert "children_truncated" not in got
+
+
+def test_a_company_with_no_children_reports_none_rather_than_nothing(gleif):
+    got = entities.ownership(TOYOTA_CHILD)
+    assert got["direct_children"] == [] and got["direct_children_total"] == 0

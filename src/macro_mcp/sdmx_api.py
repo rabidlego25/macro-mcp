@@ -160,8 +160,17 @@ def _label(names: dict) -> str:
 
 def _matches(q: str, ident: str, names: dict) -> bool:
     """Match across every localization, so an English query finds an Italian
-    dataflow and vice versa."""
-    return q in ident.lower() or any(q in s.lower() for s in names.values())
+    dataflow and vice versa.
+
+    Every word of the query has to appear, in any order, within one name or the
+    id. A query is typed as a phrase and the names are not phrased that way:
+    matching the whole phrase as one substring, "national accounts" found one
+    IMF flow and hid ANEA, whose name is "National Economic Accounts (NEA),
+    Annual Data". Requiring the words rather than the order finds seventeen.
+    """
+    words = q.split()
+    return any(all(w in field for w in words)
+               for field in (ident.lower(), *(n.lower() for n in names.values())))
 
 
 # Attributes that say what a number is measured in. A bare 634751300000000.0 is
@@ -202,6 +211,46 @@ def _unit_labels(provider: str, flow: str) -> dict:
         cl = _codes(a, provider)
         if cl is not None:
             out[a.id] = {c.id: _label(_names(c)) for c in cl}
+    return out
+
+
+@lru_cache(maxsize=64)
+def _dim_labels(provider: str, flow: str) -> dict:
+    """Code to English label, per key dimension.
+
+    The same lookup `_unit_labels` does, against the same DSD, for the
+    dimensions rather than the unit attributes. Without it a response says
+    COUNTRY: JPN and TYPE_OF_TRANSFORMATION: XDC, and the fact that the number
+    is in yen is reachable only by asking search_codes about a dimension the
+    caller already filtered on. SingStat is the extreme case: its series are
+    keyed 1, 1.0, 1.01, and "1" is All Items.
+    """
+    try:
+        dsd = _dsd(provider, flow)
+    except Exception:
+        return {}
+    out = {}
+    for d in getattr(getattr(dsd, "dimensions", None), "components", []):
+        if d.id == "TIME_PERIOD":
+            continue
+        cl = _codes(d, provider)
+        if cl is not None:
+            out[d.id] = {c.id: _label(_names(c)) for c in cl}
+    return out
+
+
+def _native_labels(adapter, flow: str, dims: list) -> dict:
+    """The same map from an adapter that is not SDMX. Its codes() is what
+    search_codes already calls, and reads the table this fetch has cached."""
+    out = {}
+    for d in dims:
+        try:
+            found = adapter.codes(flow, d, "", 100000)
+        except Exception:
+            continue
+        named = {c["id"]: c["name"] for c in found.get("shown", []) if c.get("name")}
+        if named:
+            out[d] = named
     return out
 
 
@@ -346,7 +395,8 @@ def _at_cap(df, cap: int | None, units: tuple) -> bool:
     return any(n >= cap for n in sizes)
 
 
-def _pack(df, limit: int, units: tuple = (), cap: int | None = None) -> dict:
+def _pack(df, limit: int, units: tuple = (), cap: int | None = None,
+          asked: dict | None = None, names: dict | None = None) -> dict:
     """Hoist the invariant part of the key and nest the rest as series.
 
     A row-per-observation frame repeats the whole key on every row, which on a
@@ -357,6 +407,12 @@ def _pack(df, limit: int, units: tuple = (), cap: int | None = None) -> dict:
     `cap` is the per-series bound the provider was given, when it was given
     one. It is what makes `total` a floor rather than a count, so it has to
     reach the response text.
+
+    `asked` is the key the caller sent. It is only used when nothing came back,
+    because the key is otherwise derived from the frame and an empty frame has
+    no columns to derive it from: the response then said nothing about what had
+    just been asked for. `names` maps each dimension's codes to labels, and
+    only the codes that appear are returned.
     """
     at_cap = _at_cap(df, cap, units)
     empty = int(df["value"].isna().sum())
@@ -418,6 +474,32 @@ def _pack(df, limit: int, units: tuple = (), cap: int | None = None) -> dict:
                                  "keys": [_split(k, units)[0] for k in dropped[:10]]}
     if empty:
         out["empty"] = empty
+
+    if names:
+        seen = {}
+        for k in [hoisted, *(_split(k, units)[0] for k, _ in tails)]:
+            for dim, code in k.items():
+                seen.setdefault(dim, set()).add(code)
+        labelled = {dim: {c: names[dim][c] for c in sorted(cs) if c in names[dim]}
+                    for dim, cs in seen.items() if dim in names}
+        labelled = {dim: got for dim, got in labelled.items() if got}
+        if labelled:
+            out["names"] = labelled
+
+    if not total:
+        # Nothing matched, so there is no frame to read the key off and the
+        # response would otherwise not say what had been asked for. Every
+        # cause looks the same from here, which is the reason for the note:
+        # a code the flow does not carry, a period the series does not cover
+        # and one empty code in a multi-code key are indistinguishable.
+        out["key"] = {k: str(v) for k, v in (asked or {}).items()}
+        out["note"] = (
+            "no observations. Any one entry in the key can empty the result, "
+            "and so can a period the series does not cover; they look the same "
+            "from here. Leave a dimension out of the key to see what the flow "
+            "carries for the rest, or check a code with search_codes."
+            if not empty else
+            "the key matched, but every observation in the period is empty.")
     return out
 
 
@@ -591,8 +673,12 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
           end: str | None = None, limit: int = 500) -> dict:
     if provider in NATIVE:
         adapter = NATIVE[provider]
-        return _pack(adapter.frame(flow, key, start, end), limit,
-                     getattr(adapter, "UNITS", ()))
+        units = getattr(adapter, "UNITS", ())
+        df = adapter.frame(flow, key, start, end)
+        dims = [c for c in df.columns
+                if c not in ("TIME_PERIOD", "value") and c not in units]
+        return _pack(df, limit, units, asked=key,
+                     names=_native_labels(adapter, flow, dims))
     params = {}
     if start:
         params["startPeriod"] = start
@@ -606,4 +692,5 @@ def fetch(provider: str, flow: str, key: dict, start: str | None = None,
     # truncation at all.
     msg, cap = _bounded(provider, send, params, limit + 1)
     df, units = _frame(msg, provider, flow)
-    return _pack(df, limit, units, cap)
+    return _pack(df, limit, units, cap, asked=key,
+                 names=_dim_labels(provider, flow))
