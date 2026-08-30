@@ -1,0 +1,3 @@
+{"event": "question", "text": "What is Toyota's LEI?"}
+{"event": "call", "tool": "find_entity", "arguments": {"name": "Toyota Motor", "country": "JP", "limit": 5}, "seconds": 0.68, "bytes": 299, "response": "{\n  \"total\": 1,\n  \"hits\": [\n    {\n      \"lei\": \"5493006W3QUS5LMH6R84\",\n      \"name\": \"トヨタ自動車株式会社\",\n      \"other_names\": [\n        \"Toyota Motor Corporation\"\n      ],\n      \"country\": \"JP\",\n      \"jurisdiction\": \"JP\",\n      \"status\": \"ACTIVE\",\n      \"bic\": [\n        \"TOMCJP22XXX\"\n      ]\n    }\n  ]\n}", "error": null}
+{"event": "note", "text": "ANSWERED. 5493006W3QUS5LMH6R84, legal name in Japanese with the Latin name as an alias, country and status on the hit."}
