@@ -14,6 +14,9 @@ per call does not need one.
 import asyncio
 import json
 import re
+import subprocess
+import sys
+import threading
 from importlib.metadata import version
 
 import pytest
@@ -335,3 +338,62 @@ def test_an_argument_of_the_wrong_type_is_refused_rather_than_coerced():
     a string never reaches the SDMX layer to be misread as a dimension."""
     with pytest.raises(ToolError):
         call("fetch_data", provider="ECB", flow="EXR", key="FREQ.D")
+
+
+# --- the process a client actually launches ----------------------------------
+
+def stdio(*messages) -> dict:
+    """Drive the server as a client does: a real process, one JSON-RPC message
+    per line over its stdin, replies read off its stdout.
+
+    Everything above this point imports the module and calls into it, which
+    skips main(), mcp.run() and the transport. Those are what a client meets
+    first, and a fault in them used to surface only when one connected.
+    """
+    proc = subprocess.Popen([sys.executable, "-m", "macro_mcp.server"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, bufsize=1)
+    # The server reads until stdin closes, so a reply that never comes would
+    # hang the suite rather than fail it.
+    watchdog = threading.Timer(30, proc.kill)
+    watchdog.start()
+    try:
+        replies = {}
+        for message in messages:
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            if "id" not in message:
+                continue
+            while True:
+                line = proc.stdout.readline()
+                assert line, f"server closed before answering {message['method']}"
+                reply = json.loads(line)
+                if reply.get("id") == message["id"]:
+                    replies[message["method"]] = reply
+                    break
+        proc.stdin.close()
+        assert proc.wait(timeout=30) == 0, proc.stderr.read()
+        return replies
+    finally:
+        watchdog.cancel()
+        proc.kill()
+
+
+def test_the_server_starts_and_completes_the_handshake_over_stdio():
+    """The install instructions hand a client `macro-mcp` and nothing else, so
+    this is the whole contract before any tool is called: it starts, it names
+    itself and its version, and it hands over the instructions that prescribe
+    the discovery order."""
+    replies = stdio(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+
+    handshake = replies["initialize"]["result"]
+    assert handshake["serverInfo"] == {"name": "macro-mcp",
+                                       "version": version("macro-mcp")}
+    assert handshake["instructions"] == server.INSTRUCTIONS
+
+    assert [t["name"] for t in replies["tools/list"]["result"]["tools"]] == TOOLS
