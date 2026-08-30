@@ -210,6 +210,14 @@ was a real failure, and each asserts a value rather than the absence of an
 exception, because these paths fail by returning a plausible wrong answer with a
 200 status rather than by raising.
 
+The recorded responses are mounted under a real `sdmx1` session rather than fed
+to the parser directly, so a test drives URL construction, the Accept header,
+`sdmx1` and the packing here together. That is where several of the failures
+were: an SDMX key is positional, so getting the dimension order wrong returns
+somebody else's series with a 200 status. ECB stands in for the spine that 27
+of the 29 providers traverse; Bundesbank, Hong Kong, Singapore and BIS have
+fixtures of their own because each is an exception to it.
+
 The live suite pins historical values, so a failure means a provider moved,
 renamed something, or revised a series.
 
@@ -248,13 +256,22 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A paced host is a slow host.** HKMA is asked one request at a time, so
   reading several of its datasets in one turn now costs at least 250ms each
   rather than going out together. That is the trade the 502s bought.
-- **The offline suite still misses two layers.** GLEIF has no offline test at
-  all, and `server.py` — every tool signature and docstring an agent actually
-  reads — has none either, so nothing checks the contract the agent is handed.
-  The nine fixtures cover Bundesbank, HKMA and Singapore: the three adapters
-  that are exceptions to the SDMX spine. The spine that 27 of 29 providers
-  traverse has no recorded response anywhere in the repo, so its tests are
-  either live or stubbed.
+- **`server.py` has no offline test.** Every tool signature and docstring an
+  agent actually reads executes zero lines under the offline suite, so nothing
+  checks the contract the agent is handed. The layers below it are covered.
+- **A cold fetch downloads the structure twice.** `sdmx1` resolves a dict key
+  by fetching the DSD itself, and `_unit_labels` then fetches it again through
+  `_dsd`, which does not know about the first: the same 497KB URL twice on ECB,
+  3.5MB twice on an IMF vintage. Calling `describe_flow` first — the prescribed
+  order — saves one of the two, and after the first fetch of a flow the process
+  pays neither again. Passing a rendered key string rather than a dict would
+  fix it.
+- **`sdmx1` memoises structures on the Client class, not the instance.** So
+  `MACRO_MCP_NO_CACHE=1` does not force a fresh structure read within one
+  process, and neither does discarding the client: the dict outlives both. The
+  live suite is weaker than it reads for that reason, and a before-and-after
+  measurement taken in one process is worthless — the second half reads what
+  the first downloaded.
 - **The download is capped per series, not per response.** `lastNObservations`
   bounds each series the key matches, so a wildcard over 300 series still
   fetches `limit + 1` observations for every one of them. `limit` bounds what

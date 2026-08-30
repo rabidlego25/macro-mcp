@@ -52,6 +52,17 @@ def get(lei: str) -> dict:
     return _summary(_get(f"lei-records/{lei}")["data"])
 
 
+def _absent(exc: requests.HTTPError) -> bool:
+    """Whether GLEIF said the relationship does not exist.
+
+    It answers 404 with an error document rather than an empty one, so absence
+    arrives as an exception. Every other status is the service failing, and
+    reading that as "no parent" turns an outage into a fact about the company —
+    which is the shape of wrong answer this whole module exists to avoid.
+    """
+    return exc.response is not None and exc.response.status_code == 404
+
+
 def ownership(lei: str) -> dict:
     """Direct and ultimate parents, plus children. Needed for real exposure
     questions, which never stop at the listed entity."""
@@ -60,11 +71,15 @@ def ownership(lei: str) -> dict:
                       ("ultimate_parent", "ultimate-parent")]:
         try:
             out[rel] = _summary(_get(f"lei-records/{lei}/{path}")["data"])
-        except requests.HTTPError:
+        except requests.HTTPError as exc:
+            if not _absent(exc):
+                raise
             out[rel] = None
     try:
         kids = _get(f"lei-records/{lei}/direct-children", **{"page[size]": 50})
         out["direct_children"] = [_summary(r) for r in kids["data"]]
-    except requests.HTTPError:
+    except requests.HTTPError as exc:
+        if not _absent(exc):
+            raise
         out["direct_children"] = []
     return out
