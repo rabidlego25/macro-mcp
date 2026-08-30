@@ -50,7 +50,7 @@ Register with an MCP client:
 
 ## Tools
 
-Discovery is progressive — a single codelist can hold hundreds of entries, so
+Discovery is progressive: a single codelist can hold hundreds of entries, so
 metadata is never returned whole.
 
 | Tool | Purpose |
@@ -86,16 +86,16 @@ yields goes from 173KB to 6KB.
 
 ## Units
 
-A bare `634751300000000.0` is not an answer to what Japan's GDP was — it is
+A bare `634751300000000.0` is not an answer to what Japan's GDP was. It is
 ¥634.75tn or ¥634.75bn depending on a multiplier the provider ships and `sdmx1`
 discards unless asked. So `fetch_data` returns what the number is measured in,
 resolved from the provider's code to its label: BIS sends `UNIT_MEASURE="368"`,
 which is no more use than the number was.
 
-Providers spell it differently and attach it at different levels — BIS and ILO
+Providers spell it differently and attach it at different levels. BIS and ILO
 write `UNIT_MEASURE`/`UNIT_MULT`, ECB adds `UNIT_INDEX_BASE`, Bundesbank
 prefixes its own `BBK_UNIT`, IMF publishes no unit at all but does populate
-`SCALE`, and Singapore states one per row — so units are matched by pattern
+`SCALE`, and Singapore states one per row. So units are matched by pattern
 rather than by a list, at whatever level they arrive.
 
 They are returned beside the key, never inside it: a unit is not a dimension,
@@ -111,7 +111,7 @@ whose whole point is 6KB.
 `range` is the span actually returned, so truncation is visible rather than
 inferred from a `total` that does not match. Truncation keeps the most recent
 observations, and `limit` is shared across the series in the response rather
-than spent oldest-first over the whole of it — otherwise a two-country request
+than spent oldest-first over the whole of it. Otherwise a two-country request
 came back with only the country whose history ran latest. The split is max-min
 fair, so a short series hands its unused share to a long one and a response that
 fits under the budget is never clipped. Where there are more series than the
@@ -128,7 +128,7 @@ cost 53KB and 4.4s from IMF rather than 1.5MB and 12.1s.
 The extra one is what keeps truncation visible: asked for exactly `limit`, a
 clipped series comes back the same length as a complete one. When a series does
 arrive at the cap, `total` is a floor rather than the length of the series, and
-the `truncated` note says so — counting the rest would mean downloading it.
+the `truncated` note says so: counting the rest would mean downloading it.
 
 ## Point in time
 
@@ -143,16 +143,16 @@ from each and report what moved:
 ```
 
 Japan's 2024 nominal GDP, revised up by ¥525.3bn since the April 2026 vintage.
-Coverage varies between vintages as well as values — one 2026 vintage of the
-national accounts carries 18,068 observations and another 204 — so a vintage
+Coverage varies between vintages as well as values. One 2026 vintage of the
+national accounts carries 18,068 observations and another 204, so a vintage
 that does not have the key is listed under `no_data` rather than counted as
 agreeing with its neighbours.
 
 ## Caching
 
 Metadata is cached to disk under `$XDG_CACHE_HOME/macro-mcp` for a week.
-Structures are large and slow to build — ISTAT takes 29s cold and 1.5s warm,
-Eurostat 52s and 11s — and providers republish them rarely. In-process
+Structures are large and slow to build (ISTAT takes 29s cold and 1.5s warm,
+Eurostat 52s and 11s) and providers republish them rarely. In-process
 memoisation alone threw all of that away when the server exited.
 
 Nothing else is cached. The policy denies by default and names the structure
@@ -175,10 +175,10 @@ provider is asked and absorbs the failures that are not answers.
   and no delay. HKMA is the exception at one at a time, 4/s: it started
   answering 502 on every path after eight parallel requests and did not recover
   for minutes.
-- **Transient statuses are retried** — 429, 500, 502, 503, 504 — three attempts
-  with exponential backoff and jitter, so ISTAT's intermittent 500s no longer
-  reach the agent as errors. A 404 is an answer and is not repeated, and
-  neither is a TLS failure — UY110's self-signed certificate will not verify on
+- **Transient statuses are retried.** 429, 500, 502, 503 and 504 get three
+  attempts with exponential backoff and jitter, so ISTAT's intermittent 500s no
+  longer reach the agent as errors. A 404 is an answer and is not repeated, and
+  neither is a TLS failure: UY110's self-signed certificate will not verify on
   the second attempt either.
 - **`Retry-After` is honoured, and held against the whole host.** A 429 is
   addressed to this client rather than to the request that drew it, so
@@ -198,7 +198,7 @@ MACRO_MCP_LIVE=1 uv run pytest -m revisable          # what the data did
 ```
 
 The live suite is split because its two halves mean opposite things. Unmarked
-tests assert structure — a flow exists, a key resolves, a period joins — and a
+tests assert structure (a flow exists, a key resolves, a period joins) and a
 failure means a provider moved or this server broke. Tests marked `revisable`
 assert that a number is still the number it was, and a failure there means a
 CPI was rebased or a national account revised: the provider doing its job, and
@@ -212,10 +212,10 @@ exception, because these paths fail by returning a plausible wrong answer with a
 
 The tools are exercised through `call_tool`, not by calling the functions
 underneath, so argument validation, the published schema and the JSON an agent
-actually parses are all in the path. What those tools publish — the names, which
-arguments may be omitted, what they then default to, and the docstrings
-themselves — is asserted literally, because every part of it can drift from the
-code beneath without failing anything else.
+actually parses are all in the path. What those tools publish is asserted
+literally: the names, which arguments may be omitted, what they then default
+to, and the docstrings themselves. Every part of it can drift from the code
+beneath without failing anything else.
 
 The recorded responses are mounted under a real `sdmx1` session rather than fed
 to the parser directly, so a test drives URL construction, the Accept header,
@@ -234,7 +234,7 @@ Defects and constraints in this server, as distinct from properties of the data
 (below) and gaps in provider coverage (further below). Roughly worst first.
 
 - **Observations are never cached, so every fetch pays full price.** That is
-  deliberate — see Caching — but it means repeated identical queries re-download
+  deliberate (see Caching) but it means repeated identical queries re-download
   each time. It bites hardest on HKMA: a bound coarser than the endpoint's own
   period cannot be sent to the service, so the adapter pulls the full history
   (up to 6,302 rows) and filters locally, on every call.
@@ -270,15 +270,15 @@ Defects and constraints in this server, as distinct from properties of the data
 - **A cold fetch downloads the structure twice.** `sdmx1` resolves a dict key
   by fetching the DSD itself, and `_unit_labels` then fetches it again through
   `_dsd`, which does not know about the first: the same 497KB URL twice on ECB,
-  3.5MB twice on an IMF vintage. Calling `describe_flow` first — the prescribed
-  order — saves one of the two, and after the first fetch of a flow the process
-  pays neither again. Passing a rendered key string rather than a dict would
-  fix it.
+  3.5MB twice on an IMF vintage. Calling `describe_flow` first, which is the
+  prescribed order, saves one of the two, and after the first fetch of a flow
+  the process pays neither again. Passing a rendered key string rather than a
+  dict would fix it.
 - **`sdmx1` memoises structures on the Client class, not the instance.** So
   `MACRO_MCP_NO_CACHE=1` does not force a fresh structure read within one
   process, and neither does discarding the client: the dict outlives both. The
   live suite is weaker than it reads for that reason, and a before-and-after
-  measurement taken in one process is worthless — the second half reads what
+  measurement taken in one process is worthless: the second half reads what
   the first downloaded.
 - **The download is capped per series, not per response.** `lastNObservations`
   bounds each series the key matches, so a wildcard over 300 series still
@@ -306,8 +306,8 @@ Defects and constraints in this server, as distinct from properties of the data
   the extra request above.
 - **Nothing bounds the structure metadata, which is the larger half.** That
   same vintage comparison spends 31MB on five DSDs of around 3.5MB each against
-  21KB of observations. It is paid once a week rather than once a call — see
-  Caching — but on a cold process the download cap addresses the smaller part
+  21KB of observations. It is paid once a week rather than once a call (see
+  Caching) but on a cold process the download cap addresses the smaller part
   of the bill.
 - **The cap does not reach the non-SDMX adapters.** Singapore and Hong Kong
   have no such parameter, so `limit` still bounds only their responses.
@@ -316,14 +316,14 @@ Defects and constraints in this server, as distinct from properties of the data
   room and a short series hands its surplus to a long one. Once it does bind,
   though, every long series is cut to the same depth regardless of which one the
   question was about, and a response with more series than the budget can seat
-  drops the excess — named under `dropped_series`, but dropped. Narrow
-  `start`/`end`, or raise `limit`, when querying several series at once.
+  drops the excess, named under `dropped_series` but dropped all the same.
+  Narrow `start`/`end`, or raise `limit`, when querying several series at once.
 - **The first BIS fetch of a session pays for a failed parse.** BIS serves
   structure-specific data referencing a DSD `sdmx1` cannot resolve, so the
   payload is downloaded and parsed once before the generic form is tried. The
   provider is remembered after that and every later fetch goes generic-first,
   but the knowledge dies with the process, and `sdmx1` prints its parse stack
-  and the failing element to stdout on the way — the MCP SDK claims that
+  and the failing element to stdout on the way, though the MCP SDK claims that
   descriptor and diverts it to stderr, so it is noise rather than corruption.
   Not hardcoded to BIS on purpose: IMF answers 500 to the generic header, so a
   wrong guess would take a provider down rather than waste a header.
@@ -334,7 +334,7 @@ Defects and constraints in this server, as distinct from properties of the data
   served. A raw code is left in place rather than guessed at.
 - **Resolving a unit code needs the flow's structure.** `fetch_data` now reads
   the DSD to turn `368` into "Per cent per year", so a cold fetch against a
-  provider whose structures are slow — ISTAT is 29s cold — pays for that
+  provider whose structures are slow (ISTAT is 29s cold) pays for that
   metadata once a week. `describe_flow` has usually already warmed it, since the
   prescribed order goes through it.
 - **The non-SDMX adapters expose a single dimension.** Singapore and Hong Kong
@@ -365,7 +365,7 @@ fix them.
 What is not covered, and why.
 
 - **Asian national sources are mostly gated.** Headline macro for Asia is already
-  covered by the international providers — BIS carries all of JP, CN, IN, KR, SG,
+  covered by the international providers: BIS carries all of JP, CN, IN, KR, SG,
   HK, TW, TH, MY, ID, PH, VN, PK and BD for policy rates and property prices, and
   the IMF, World Bank and ILO are comparably broad. What is missing is national
   detail, and there the constraint bites: e-Stat (Japan), ECOS (Korea), KOSIS and
@@ -384,9 +384,10 @@ What is not covered, and why.
   `IMF` (sdmxcentral, which answers 501 on data), `IMF_DATA` (SDMX 2.1) and
   `IMF_DATA3` (SDMX 3.0). The 3.0 service returns structures but a header and one
   empty row for every flow, so `IMF_DATA` is the one wired up. Its dimensions
-  carry no local representation — codes are reachable only through the concept
-  each dimension identifies — and it writes monthly periods as `2024-M01`, which
-  is rewritten to `2024-01` so the series joins against everything else.
+  carry no local representation, so codes are reachable only through the
+  concept each dimension identifies, and it writes monthly periods as
+  `2024-M01`, which is rewritten to `2024-01` so the series joins against
+  everything else.
 - **Endpoints drift.** `sdmx1` hardcodes base URLs that go stale as institutions
   move. `URL_FIXES` corrects ABS (the old host stopped resolving) and Lithuania
   (moved to an APEX path); `AGENCY` corrects INEGI, whose flows are filed under a
