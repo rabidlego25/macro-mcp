@@ -111,7 +111,7 @@ def test_fetch_retries_with_generic_sdmx_when_parsing_fails(monkeypatch):
 
     out = api.fetch("BIS", "WS_CBPOL", {"FREQ": "M"})
     assert out["total"] == 1
-    assert len(calls) == 2
+    assert len(calls) == 3  # the failed parse, the generic retry, the count check
     assert "genericdata" in calls[1]["Accept"]
 
     # The second fetch must not repeat the download that already failed once.
@@ -128,13 +128,16 @@ def _frame():
     return pd.Series([1.0], index=pd.Index(["2024-01"], name="TIME_PERIOD"))
 
 
-def message(obs: int = 1):
-    """A data message carrying `obs` observations.
+def message(obs: int = 1, series: int = 0):
+    """A data message carrying `obs` observations across `series` series.
 
-    Only the count is read outside to_pandas: fetch checks it to tell a
+    Two counts are read outside to_pandas. The observation count tells a
     provider that ignored the download cap from a query that matched nothing.
+    The series count tells a capped response that is whole from one that
+    quietly left series out.
     """
-    ds = type("DataSet", (), {"obs": [object()] * obs, "series": {}})()
+    ds = type("DataSet", (), {"obs": [object()] * obs,
+                              "series": {i: [object()] for i in range(series)}})()
     return type("Message", (), {"data": [ds]})()
 
 
@@ -165,7 +168,7 @@ def test_the_provider_is_asked_to_truncate_rather_than_shipping_the_history(monk
     and parsed — 4.9MB from ECB to answer a question about three days."""
     seen = _recorder(monkeypatch, lambda p: message())
     api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=3)
-    assert seen == [{"lastNObservations": 4}]
+    assert seen == [{"lastNObservations": 4}, {"detail": "nodata"}]
 
 
 def test_the_cap_is_one_more_than_the_budget_so_truncation_stays_visible(monkeypatch):
@@ -179,8 +182,10 @@ def test_the_cap_is_one_more_than_the_budget_so_truncation_stays_visible(monkeyp
 def test_the_cap_travels_with_the_period_bounds_rather_than_replacing_them(monkeypatch):
     seen = _recorder(monkeypatch, lambda p: message())
     api.fetch("ECB", "EXR", {"FREQ": "D"}, "2024-01", "2024-03", limit=3)
-    assert seen == [{"startPeriod": "2024-01", "endPeriod": "2024-03",
-                     "lastNObservations": 4}]
+    assert seen[0] == {"startPeriod": "2024-01", "endPeriod": "2024-03",
+                       "lastNObservations": 4}
+    assert seen[1] == {"startPeriod": "2024-01", "endPeriod": "2024-03",
+                       "detail": "nodata"}
 
 
 def test_a_provider_that_rejects_the_cap_is_asked_again_without_it(monkeypatch):
@@ -256,4 +261,68 @@ def test_the_bundesbank_adapter_is_capped_on_the_same_terms(monkeypatch):
     monkeypatch.setattr(api.bundesbank, "data", data)
     monkeypatch.setattr(api.sdmx, "to_pandas", lambda m: _frame())
     api.fetch("BBK", "BBSIS", {"BBK_STD_FREQ": "D"}, limit=2)
-    assert seen == [{"lastNObservations": 3}]
+    assert seen == [{"lastNObservations": 3}, {"detail": "nodata"}]
+
+
+def test_a_provider_that_drops_series_under_the_cap_is_asked_again_without_it(
+        monkeypatch):
+    """ILO answers a capped request for its US consumer price flow with 13
+    series where 39 exist. The response has data, so the empty check waves it
+    through, and nothing else in it shows that two thirds are missing: a
+    provider is entitled to return fewer observations, and this one returns
+    fewer series. Counting them another way is the only way to know."""
+    seen = _recorder(monkeypatch, lambda p: message(
+        obs=1, series=13 if "lastNObservations" in p else 39))
+    api.fetch("ILO", "DF_CPI", {"REF_AREA": "USA"}, limit=3)
+
+    assert [("lastNObservations" in p, p.get("detail")) for p in seen] == [
+        (True, None),      # capped, and it looks fine
+        (False, "nodata"), # the keys, which say 39 exist
+        (False, None)]     # so fetch it properly
+    assert api._NO_LAST_N == {"ILO"} and api._KEEPS_SERIES == {}
+
+
+def test_a_provider_that_keeps_every_series_is_checked_once_and_then_trusted(
+        monkeypatch):
+    """The check costs a request, so it must not cost one per fetch."""
+    seen = _recorder(monkeypatch, lambda p: message(obs=1, series=4))
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=3)
+    assert len(seen) == 2 and api._KEEPS_SERIES == {"ECB": 4}
+
+    seen.clear()
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=3)
+    assert seen == [{"lastNObservations": 4}]
+
+
+def test_a_smaller_cap_than_the_one_verified_is_checked_again(monkeypatch):
+    """ILO returns 39 series when asked for 2001 observations and 13 when asked
+    for 501, so a verdict is only good for the number it was measured at and
+    anything larger. Recorded as a plain yes, one fetch at limit=2000 would
+    certify a provider that drops two thirds of its series at the default."""
+    seen = _recorder(monkeypatch, lambda p: message(obs=1, series=4))
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=500)
+    assert api._KEEPS_SERIES == {"ECB": 501}
+
+    seen.clear()
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=1000)   # larger, so trusted
+    assert seen == [{"lastNObservations": 1001}]
+
+    seen.clear()
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=3)      # smaller, so measured
+    assert seen == [{"lastNObservations": 4}, {"detail": "nodata"}]
+    assert api._KEEPS_SERIES == {"ECB": 4}
+
+
+def test_a_provider_that_cannot_answer_the_count_is_not_given_the_benefit(
+        monkeypatch):
+    """Assuming the capped answer is whole is the assumption that lost ILO its
+    series, so a provider that refuses the check loses the cap instead."""
+    def answer(params):
+        if params.get("detail") == "nodata":
+            raise _Refusal(400)
+        return message(obs=1, series=4)
+
+    seen = _recorder(monkeypatch, answer)
+    api.fetch("ECB", "EXR", {"FREQ": "D"}, limit=3)
+    assert api._NO_LAST_N == {"ECB"}
+    assert seen[-1] == {}, "the uncapped fetch it fell back to"

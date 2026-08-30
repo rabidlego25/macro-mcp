@@ -169,12 +169,13 @@ def test_bis_is_retried_with_the_generic_header_and_then_remembered(monkeypatch)
     assert got["series"][0]["observations"][-1] == ["2026-07", 1.0]
 
     data = [(u, a) for u, a in zip(bis.urls, bis.accepts()) if "/data/" in u]
-    assert len(data) == 2, "the default request and the generic retry"
+    assert len(data) == 3, "the failed default, the generic retry, the count check"
     assert "genericdata" not in data[0][1] and "genericdata" in data[1][1]
     assert data[0][0] == data[1][0], "same URL, different Accept"
+    assert "detail=nodata" in data[2][0], "the series count, checked once"
     assert api._NEEDS_GENERIC == {"BIS"}
 
-    # And having learned it, the second fetch does not repeat the failure.
+    # And having learned both, the second fetch is one request.
     before = len(bis.urls)
     api.fetch("BIS", "WS_CBPOL", {"FREQ": "M", "REF_AREA": "JP"}, limit=3)
     after = [(u, a) for u, a in zip(bis.urls[before:], bis.accepts()[before:])

@@ -179,6 +179,40 @@ it is stdout and not stderr. The README asserts the MCP SDK claims that
 descriptor and diverts it. Nothing tests the assertion, and if it is wrong the
 JSON-RPC stream is corrupted mid-session on the provider the README leads with.
 
+## 14. The cap was losing series, silently
+
+Not from the twenty questions. It came out of designing a fix for finding 6 and
+is worse than anything the run found, because it was shipped and live.
+
+`fetch_data` sends `lastNObservations` on every request, which is what bounds
+the download. ILO applies it by dropping series:
+
+| `lastNObservations` | series returned |
+|---|---|
+| 1 | 2 |
+| 20 | 13 |
+| 501 (the default `limit`) | 13 |
+| 2001 | 39 |
+| not sent | 39 |
+
+So a default `fetch_data` against ILO with no period bound returned 13 of 39
+series, with a 200, no truncation note, and nothing else to show for it. BIS,
+ECB, IMF and Bundesbank were checked in the same condition and are unaffected.
+The existing safety check looks for an empty response, which this is not: the
+response has data, it is simply not all of the data.
+
+The check is now a count. The first capped fetch of a provider is compared
+against a `detail=nodata` request, which returns the keys without the
+observations, and a provider that comes back short loses the cap for the rest
+of the process. One extra request per provider.
+
+The verdict is recorded against the cap it was measured at, not as a plain yes,
+because the table above is not constant in the cap: a first fetch at
+`limit=2000` would otherwise certify ILO as safe and the next one at the
+default would lose two thirds of its series again. Asking for more observations
+cannot return fewer series, so a verdict holds for any cap at least as large as
+the one that produced it.
+
 ## What was fixed
 
 Each fix was verified by re-running the question against the live provider. The
@@ -188,24 +222,40 @@ second pass is appended to the same log.
 |---|---|---|
 | 1. Empty response says nothing | Fixed | Echoes the key and says what to try. 91B to 488B, and the 91B was unusable. |
 | 2. Codes without labels | Fixed | Japan's GDP now carries `XDC: Domestic currency`; Singapore's CPI names series `1` as `All Items`; BIS names all 39 areas. |
-| 3. Entity search unranked | Partly | Unrelated companies are gone, but see below. |
+| 3. Entity search unranked | Mostly | Was the wrong filter, not just the order. See below. |
+| 6. No way to find a key that exists | Partly | `detail=nodata` proved out and is used by the count check; no tool exposes it yet. |
+| 14. The cap lost series | Fixed | ILO returns 39 of 39 again; the count check catches it and the verdict is recorded per cap. |
 | 4. Substring search | Fixed | `"national accounts"` returns 11 flows including `ANEA`, was 1. |
 | 7. Undocumented query shapes | Fixed | `+` and the wildcard are in the `fetch_data` description and the instructions. |
 | 8. `direct_children` truncates silently | Fixed | Returns `direct_children_total`, and says so when a page was clipped. |
 
-Ranking is the one that did not fully work. Hits are now scored on the name
-rather than passed through in GLEIF's order, so `EDUARDO R FERNANDEZ PEREZ SL`
-no longer leads a search for Banco Santander. But the top hits are now the
-French and Dutch branches, both legally named "Banco Santander S.A.", and the
-Spanish parent is still not in the first five. Name matching cannot separate a
-parent from a branch; only the ownership graph can, and that is a request per
-candidate. The honest state is that the search is better and still cannot be
-trusted to return a group parent first.
+Entity search turned out to be diagnosed wrongly the first time. Ranking was
+treated as the problem; the filter was. `filter[fulltext]` matches addresses,
+which is why a company near the Spanish city of Santander outranked the bank,
+and it did not return `BANCO SANTANDER S.A.` in twenty-five hits at all, so no
+amount of local ranking could have reached it. `filter[entity.names]` covers
+the legal name and the other names GLEIF holds. It finds トヨタ自動車株式会社
+from "Toyota Motor Corporation", which was the case fulltext was chosen for,
+and it returns the Spanish parent first for "Banco Santander".
+
+Three things then rank what comes back: how closely the name matches, with
+accents folded, since "Nestle" scored nothing against "NESTLÉ S.A."; then
+`category`, because a `BRANCH` and a `FUND` are named after the parent and the
+Dutch and French branches of Santander are both legally "Banco Santander S.A.";
+then `status`, so a dissolved entity does not lead.
+
+Still imperfect on common names. "Nestle" returns an Indian sole proprietor
+first, because GLEIF records it under an exact alias of that name, and
+"Deutsche Bank" leads with the Italian subsidiary. Nothing in a record marks
+the group parent, so the remaining cases need the ownership graph. Both are far
+better than before, and neither is right.
 
 Not addressed, and still true:
 
 - **5.** A search returning 108 ILO flows has not narrowed anything.
-- **6.** No way to find a key that exists on a 15-dimension flow.
+- **6.** No tool exposes the series that exist, though the mechanism now
+  works: `detail=nodata` returns the keys, and Bundesbank rejects
+  `serieskeysonly` while accepting it.
 - **9.** Vintages crowd out the flow they are vintages of.
 - **10.** `fx_period_rate` states less about provenance than `fx_spot`.
 - **11.** A provider outage is a raw HTTP string.

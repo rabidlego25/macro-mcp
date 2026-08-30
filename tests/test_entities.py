@@ -30,15 +30,19 @@ def test_a_legal_name_comes_back_in_the_script_it_is_registered_in(gleif):
     assert got["bic"] == ["TOMCJP22XXX"]
 
 
-def test_search_asks_for_fulltext_rather_than_a_legal_name_match(gleif):
-    """A Latin-script legal-name filter returns nothing for Toyota, which is
-    the whole reason this uses fulltext. The filter names are GLEIF's, and a
-    wrong one is ignored rather than rejected."""
+def test_search_asks_over_names_rather_than_fulltext_or_the_legal_name(gleif):
+    """Three filters were on the table and only one is right. `legalName` misses
+    Toyota, whose legal name is Japanese. `fulltext` also matches addresses, so
+    it answered "Banco Santander" with an unrelated company near the Spanish
+    city of that name and did not return the bank in twenty-five hits.
+    `entity.names` covers the legal name and the other names, which is what the
+    Japanese case needed all along. A wrong filter name is ignored by GLEIF
+    rather than rejected, so this asserts the URL."""
     entities.search("Toyota Motor", "jp", 5)
     url = gleif.urls[-1]
-    assert "filter%5Bfulltext%5D=Toyota+Motor" in url
+    assert "filter%5Bentity.names%5D=Toyota+Motor" in url
+    assert "fulltext" not in url and "legalName" not in url
     assert "filter%5Bentity.legalAddress.country%5D=JP" in url  # upper-cased
-    assert "legalName" not in url
 
 
 def test_more_hits_are_fetched_than_are_returned_so_ranking_has_something_to_do(gleif):
@@ -161,3 +165,33 @@ def test_ownership_says_how_many_children_there_are(gleif):
 def test_a_company_with_no_children_reports_none_rather_than_nothing(gleif):
     got = entities.ownership(TOYOTA_CHILD)
     assert got["direct_children"] == [] and got["direct_children_total"] == 0
+
+
+def test_an_accented_name_is_matched_by_its_unaccented_spelling():
+    """Typed "Nestle", NESTLÉ S.A. scored nothing and the company ranked below
+    its own subsidiaries. GLEIF matches either spelling; ranking has to too."""
+    assert entities._score("Nestle", hit("NESTLÉ S.A."))[0] == 1
+    assert entities._score("Nestlé", hit("NESTLE S.A."))[0] == 1
+
+
+def test_the_operating_company_outranks_a_branch_of_the_same_name():
+    """The Dutch and French branches of Banco Santander are both legally named
+    "Banco Santander S.A.", exactly as the Spanish company is. Name matching
+    cannot separate them, and the parent is what was asked for."""
+    def entity(name, category):
+        return {**hit(name), "category": category, "status": "ACTIVE"}
+
+    ranked = sorted([entity("Banco Santander S.A.", "BRANCH"),
+                     entity("BANCO SANTANDER S.A. ADRHEDGED", "FUND"),
+                     entity("BANCO SANTANDER S.A.", "GENERAL")],
+                    key=lambda h: entities._score("Banco Santander", h))
+    assert [h["category"] for h in ranked] == ["GENERAL", "BRANCH", "FUND"]
+
+
+def test_a_dissolved_entity_ranks_below_a_live_one_it_ties_with():
+    """The docstring has always said to check status. Ordering on it means an
+    agent taking the first hit is not handed a dead company."""
+    def entity(status):
+        return {**hit("BANCO X"), "category": "GENERAL", "status": status}
+    assert entities._score("Banco X", entity("ACTIVE")) < \
+           entities._score("Banco X", entity("INACTIVE"))

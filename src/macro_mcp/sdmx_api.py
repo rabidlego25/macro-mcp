@@ -652,6 +652,18 @@ def _bounded(provider: str, send, params: dict, cap: int):
     matched nothing, and the difference matters: one is a wrong answer and the
     other is the right one. The uncapped request settles it, and is cheap in
     the case that it is genuinely empty.
+
+    So is the series count, and for a worse reason. ILO answers a capped
+    request for its US consumer price flow with 13 series where 39 exist,
+    losing two thirds of them with a 200 and no truncation to show for it. The
+    empty check does not see that: the response has data, it is simply not all
+    of the data. Nothing in a capped response reveals it either, since a
+    provider is entitled to return fewer observations and this one returns
+    fewer *series*. The only way to know is to count them another way, so the
+    first capped fetch of a provider is checked against a `detail=nodata`
+    request, which returns the keys and no observations. One extra request per
+    provider per process, and it is the difference between bounding a download
+    and quietly dropping data.
     """
     if provider in _NO_LAST_N:
         return send(params), None
@@ -661,12 +673,52 @@ def _bounded(provider: str, send, params: dict, cap: int):
         if not _refused(exc):
             raise
         msg = None
-    if msg is not None and _observations(msg):
+    if (msg is not None and _observations(msg)
+            and _keeps_series(provider, send, params, msg, cap)):
         return msg, cap
     bare = send(params)
     if _observations(bare):
         _NO_LAST_N.add(provider)  # only once the cap has been shown to cost data
     return bare, None
+
+
+# The smallest cap at which a provider has been shown to return every series
+# the key matches. Not a plain set, because ILO's answer depends on the number
+# asked for: 39 series at 2001, 13 at 501, 2 at 5. Asking for more observations
+# cannot return fewer series, so a verdict holds for any cap at least as large
+# as the one it was measured at, and a smaller one has to be measured again.
+# Recording it as a set would let one fetch at limit=2000 certify a provider
+# that loses two thirds of its series at the default limit of 500.
+_KEEPS_SERIES: dict[str, int] = {}
+
+
+def _series(msg) -> int:
+    return sum(len(getattr(ds, "series", {}) or {})
+               for ds in getattr(msg, "data", []) or [])
+
+
+def _keeps_series(provider: str, send, params: dict, capped, cap: int) -> bool:
+    """Whether the cap returned every series the key matches.
+
+    `detail=nodata` asks for the keys without the observations, so on a
+    provider that honours it the check costs a fraction of the data. On one
+    that ignores it the check costs what the uncapped request would have, which
+    is the price of finding out. A provider that cannot answer it at all is
+    treated as unsafe: the alternative is to assume the capped answer is whole,
+    which is the assumption that lost ILO its series.
+    """
+    if cap >= _KEEPS_SERIES.get(provider, float("inf")):
+        return True
+    try:
+        keys = send({**params, "detail": "nodata"})
+    except Exception:
+        _NO_LAST_N.add(provider)
+        return False
+    if _series(keys) > _series(capped):
+        _NO_LAST_N.add(provider)
+        return False
+    _KEEPS_SERIES[provider] = min(cap, _KEEPS_SERIES.get(provider, cap))
+    return True
 
 
 def fetch(provider: str, flow: str, key: dict, start: str | None = None,

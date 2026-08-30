@@ -326,11 +326,16 @@ Defects and constraints in this server, as distinct from properties of the data
   Now it counts what arrived, and a series that came back at the cap has older
   observations nobody counted. The `truncated` note says which of the two it
   is; there is no way to report the exact length without paying for it again.
-- **Not every provider honours the cap.** It is sent to all of them. BIS, ECB,
-  IMF, Bundesbank, OECD and ILO truncate at the source; UNSD and UNICEF
-  returned the same bytes with the parameter as without, so they appear to
-  ignore it and still ship the whole series. None refused it, but one that does
-  is asked again without it and remembered for the life of the process.
+- **Not every provider honours the cap, and one applied it wrongly.** It is
+  sent to all of them. BIS, ECB, IMF, Bundesbank and OECD truncate at the
+  source; UNSD and UNICEF returned the same bytes with the parameter as
+  without, so they appear to ignore it. ILO does something worse: it drops
+  whole series, returning 13 of 39 at the default `limit` and 39 at 2001. That
+  shipped for a while and is the reason the first capped fetch of a provider is
+  now checked against a `detail=nodata` count of the keys, and the verdict
+  recorded against the cap it was measured at. A provider that refuses the
+  parameter, or comes back short, is asked again without it and remembered for
+  the life of the process.
 - **A query that matches nothing costs two requests.** A service that answers
   200 to a parameter it does not understand looks exactly like a key that
   matched nothing, so an empty capped response is checked against an uncapped

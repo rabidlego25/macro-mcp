@@ -35,14 +35,15 @@ def parse(payload: bytes):
     return sdmx.read_sdmx(io.BytesIO(payload))
 
 
-LEARNED = (api._NEEDS_GENERIC, api._NO_LAST_N)
+LEARNED = (api._NEEDS_GENERIC, api._NO_LAST_N, api._KEEPS_SERIES)
 
 
 @pytest.fixture(autouse=True)
 def unlearned():
-    """Which providers need the generic Accept header, and which will not take a
-    download cap, are learned at runtime and kept for the life of the process,
-    so both have to be forgotten between tests."""
+    """Which providers need the generic Accept header, which will not take a
+    download cap, and which keep every series under one, are all learned at
+    runtime and kept for the life of the process, so each has to be forgotten
+    between tests."""
     for known in LEARNED:
         known.clear()
     yield

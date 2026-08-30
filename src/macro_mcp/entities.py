@@ -3,6 +3,8 @@
 Tickers collide across venues and CIK is US-only, so entities resolve here first.
 """
 
+import unicodedata
+
 import requests
 
 from . import cache
@@ -18,7 +20,22 @@ def _get(path: str, **params):
 
 
 def _norm(text: str) -> str:
-    return " ".join(str(text or "").lower().split())
+    """Lowercased, whitespace-collapsed, and stripped of accents.
+
+    Without the last part "Nestle" scores nothing against "NESTLÉ S.A." and the
+    company ranks below its own subsidiaries. GLEIF matches accents either way;
+    the ranking here has to as well.
+    """
+    folded = unicodedata.normalize("NFKD", str(text or "").lower())
+    return " ".join("".join(c for c in folded
+                            if not unicodedata.combining(c)).split())
+
+
+# A branch and a fund are named after the parent, so a query that matches the
+# parent matches them too. When the names tie, the operating company is what
+# was meant: "Banco Santander" returns the Dutch and French branches, both
+# legally "Banco Santander S.A.", alongside the Spanish company they belong to.
+_CATEGORY = {"BRANCH": 1, "FUND": 2}
 
 
 def _total(payload: dict):
@@ -47,7 +64,10 @@ def _score(query: str, hit: dict) -> tuple:
             best = min(best, 1)
         elif q in n:
             best = min(best, 2)
-    return (best, len(hit["name"]))
+    return (best,
+            _CATEGORY.get(hit.get("category"), 0),
+            0 if hit.get("status") == "ACTIVE" else 1,
+            len(hit["name"]))
 
 
 def _summary(rec: dict) -> dict:
@@ -62,6 +82,7 @@ def _summary(rec: dict) -> dict:
         "country": e["legalAddress"]["country"],
         "jurisdiction": e.get("jurisdiction"),
         "status": e["status"],
+        "category": e.get("category"),
         "bic": a.get("bic") or [],
     }
 
@@ -72,13 +93,21 @@ def search(name: str, country: str | None = None, limit: int = 10) -> dict:
     トヨタ自動車株式会社 and a Latin-script legal-name filter returns nothing.
 
     Matching is broad, so check country and status on every hit before using it.
-    Hits are ranked by how closely each name matches, not in GLEIF's own order:
-    fulltext also matches addresses, and Santander is a city as well as a bank.
+    "category" says whether a hit is the operating company, a branch of one, or
+    a fund named after it.
+
+    Searched over names rather than fulltext. Fulltext also matches addresses,
+    and Santander is a Spanish city as well as a bank: it answered "Banco
+    Santander" with 41 records led by an unrelated local company, and did not
+    return the bank itself in the first twenty-five at all. `entity.names`
+    covers the legal name and the other names GLEIF holds, which is what the
+    Japanese-script case needs too, so it finds トヨタ自動車株式会社 from
+    "Toyota Motor Corporation" without matching everything near a Toyota
+    factory. Hits are then ranked here, since GLEIF's order is not relevance.
     """
     # Ask for more than will be returned, in one request, because ranking a
-    # page cannot rescue an entity that was never on it: "Banco Santander"
-    # matches 41 records and the bank is not among the first five.
-    p = {"filter[fulltext]": name, "page[size]": min(max(limit * 5, 25), 200)}
+    # page cannot rescue an entity that was never on it.
+    p = {"filter[entity.names]": name, "page[size]": min(max(limit * 5, 25), 200)}
     if country:
         p["filter[entity.legalAddress.country]"] = country.upper()
     d = _get("lei-records", **p)
