@@ -194,6 +194,29 @@ def test_a_two_word_search_matches_words_rather_than_a_phrase(spine):
     assert api.dataflows("ECB", "exchange nonsense")["total"] == 0
 
 
+def test_hits_come_back_closest_first(spine):
+    """The other half of that eval: ILO answered "unemployment" with 108 flows
+    in no order at all, and the agent read forty names and gave up. SESFOD
+    carries "securities" 58 characters into a 119-character name; SEC is
+    called it."""
+    shown = [f["id"] for f in api.dataflows("ECB", "securities")["shown"]]
+    assert shown[0] == "SEC"
+    assert shown[-1] == "SESFOD"
+
+
+def test_a_cut_list_says_it_was_cut(spine):
+    """A total of 108 above 40 names reads as a catalogue to work through. It
+    is a ranked list with a tail, and the next move is a word, not a guess."""
+    cut = api.dataflows("ECB", "statistics", limit=3)
+    assert cut["total"] > 3 and len(cut["shown"]) == 3
+    assert "add a word" in cut["note"]
+    assert "note" not in api.dataflows("ECB", "securities")
+
+    # Without a search there is nothing to be close to, so it does not claim
+    # an order it has not applied.
+    assert "unordered" in api.dataflows("ECB", limit=3)["note"]
+
+
 def test_a_fetch_names_the_codes_it_returns(spine):
     """JPY, EUR and SP00 are not an answer to what a series is. The labels come
     off the DSD this fetch has already downloaded to resolve units."""

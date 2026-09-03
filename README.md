@@ -76,7 +76,7 @@ metadata is never returned whole.
 | Tool | Purpose |
 |---|---|
 | `list_providers` | Providers by region, with quirks and metadata support |
-| `find_dataflows` | Search a provider's dataflows |
+| `find_dataflows` | Search a provider's dataflows, or every provider with `"*"` |
 | `describe_flow` | Dimensions with code counts and a sample |
 | `search_codes` | Resolve one dimension's codes, including country codes |
 | `fetch_data` | Observations for a dimension key, as compact series |
@@ -103,6 +103,85 @@ yields goes from 173KB to 6KB.
   "range": ["2024-01", "2024-12"], "total": 24
 }
 ```
+
+## Search
+
+`find_dataflows` matches every word of the query, in any order, against the id
+and every localization a provider publishes. Matching the phrase as one
+substring asked IMF for "national accounts" and found one flow, hiding `ANEA`,
+whose name is "National Economic Accounts (NEA), Annual Data".
+
+What matched is then ordered, because a hundred names is not a narrower answer
+than a catalogue. ILO answers "unemployment" with 108 flows and used to put the
+headline rate 66th, behind sixty-five breakdowns of itself. A dataflow name is a
+subject followed by the breakdowns applied to it, so four things rank it: an
+exact match on a name or id, then whether the query's words begin words rather
+than land inside them, then how far into the name the last of them appears, then
+length.
+
+Each is there for a case. The word-start test keeps "employment" from ranking
+"time-related underemployment" alongside "Employment by sex", and anchors only
+the front, since anchoring the end too would cost `WS_CBPOL` its one hit for
+"policy rate" over "Central bank policy rates". Position separates a name that
+leads with the subject from one that mentions it in passing. Length is what
+picks the headline series out of its own breakdowns: "Unemployment rate by sex
+and age" over "Unemployment rate by sex, age and marital status". It also, for
+free, puts IMF's current `CPI` above the four monthly vintages of itself, whose
+names are its name with a date appended.
+
+Nothing is dropped and `total` still counts every match. Where the shown list is
+cut, a `note` says it is the closest ones and that a further word will narrow
+it, so the next move is a word rather than a guess. Without a search term there
+is nothing to be close to, and the note says the order is arbitrary instead of
+claiming one.
+
+### Which provider has it
+
+Ordering only helps once you have picked a provider. Asking the wrong one
+returns a zero that is true and useless: `find_dataflows("IMF_DATA",
+"unemployment")` is `total: 0`, and ILO has 108. So `provider="*"` searches
+every catalogue at once and answers with providers rather than flows.
+
+```json
+{"search": "unemployment", "total": 294, "index_built": "2026-09-02",
+ "providers": [
+   {"provider": "ISTAT", "region": "national_eu", "flows": 24,
+    "sample": [{"id": "151_929", "name": "Unemployment"}]},
+   {"provider": "ILO", "region": "international", "flows": 108,
+    "sample": [{"id": "DF_UNE_DEAP_SEX_AGE_RT", "name": "Unemployment rate by sex and age"}]}]}
+```
+
+Providers are ordered by their best hit rather than by how many they have,
+because five hundred loose matches is a worse answer than one flow named
+exactly what was asked for. Each carries its region, which is the difference a
+routing question turns on: ILO covers 190 countries and ISTAT covers Italy, and
+nothing else in the response says so. A search that matches nothing in one
+provider gets the same list under `elsewhere`, unasked, since that response had
+nothing else in it.
+
+This cannot be a live fan-out. Reading twenty catalogues costs 63s from
+Eurostat and 51s from ISTAT on a cold cache, and no tool call is two minutes.
+So the catalogues are read once by `scripts/catalogue.py` and shipped as ids
+and names only: 27,190 flows across 20 providers, 5.3MB of JSON and 767KB
+gzipped, against a wheel that already pulls 306MB of pandas. Loading it costs
+25ms once per process and a search over it 45ms.
+
+Which makes it a snapshot, and snapshots rot. The design point is that it never
+answers anything: it says where to look, the flow it names is confirmed with a
+normal `find_dataflows` against that provider, and the response says so and
+carries the date it was built. A stale index can misroute and cannot return a
+stale number — the same default-deny reasoning the cache uses. Four live tests
+sample it against the providers, so drift fails the build rather than surfacing
+as a bad suggestion.
+
+Two ways of not building it were tried first. The SDMX Global Registry is
+genuinely cross-agency and holds about a hundred dataflows, mostly Eurostat
+stubs, against ILO's 1,212 here: it registers what organisations choose to
+publish there, not what they serve. DBnomics does have a live cross-provider
+search over ~96 providers, and its ids are its own — it calls Eurostat
+`Eurostat` where this calls it `ESTAT`, and ILO's flow `UNE_TUNE_SEX_AGE_EDU_NB`
+where ILO serves `DF_UNE_TUNE_SEX_AGE_EDU_NB`. A hit there does not give an
+agent a key it can use here, which is the only thing a routing answer is for.
 
 ## Units
 
@@ -264,16 +343,61 @@ Almost nothing crashed. The server returned 200 and a well-formed response and
 the agent was stuck anyway, which is the failure this project is about: an
 empty result that echoed nothing back, a 15-digit GDP figure with no currency
 attached, a search for "national accounts" that reported one hit and hid the
-flow, and a search for Banco Santander led by an unrelated company that matched
-the city. Six of the thirteen findings are fixed and verified against the live
-providers; `evals/README.md` lists what was fixed, what was only improved, and
-what still stands.
+flow, a search for unemployment that returned 108 flows with the headline rate
+66th of them, and a search for Banco Santander led by an unrelated company that
+matched the city. Eight of the fourteen findings are fixed and verified against
+the live providers; `evals/README.md` lists what was fixed, what was only
+improved, and what still stands.
 
 ## Current problems and limitations
 
 Defects and constraints in this server, as distinct from properties of the data
 (below) and gaps in provider coverage (further below). Roughly worst first.
 
+The first six came out of an adversarial review of the coverage analysis on
+2026-09-03, which went looking for what the search and index work had got wrong
+and found more in the server than in the analysis. Each was reproduced here
+before being written down.
+
+- **LSD serves 9,156 dataflows and not one of them fetches.** Every flow tried
+  raises `TypeError: unhashable type: 'MeasureDimension'` from inside `sdmx1`,
+  before this code sees a response, so it reaches the agent as a crash rather
+  than an error (6 of 6 random flows, 2026-09-03). It is the largest catalogue
+  here, larger than Eurostat's, and `list_providers` advertises it as fully
+  capable: `scripts/probe.py` records `datastructure` support if a structure
+  parses, and never fetches an observation. The whole class of provider that
+  publishes a readable catalogue over unreadable data is invisible to that
+  probe. INEGI 404s on every data path and WB 403s, for the same reason.
+- **`describe_flow` reports the size of a codelist, not the codes that carry
+  data.** It reads the DSD, so BIS `WS_CBPOL` comes back as `REF_AREA: 239`
+  when 49 areas have ever had an observation — a fivefold overstatement handed
+  to an agent as a bare number, with nothing marking it as metadata. The
+  content constraint that would narrow it is published and not read.
+- **The cross-provider index answers a confident zero.** `provider="*"` matches
+  names literally, with no stemming, synonyms or spelling normalisation, so
+  `long-term interest rate` returns `total: 0` although OECD's `DF_FINMARK`
+  carries `IRLT`; `labor force` returns 0 against 352 for `labour force`; and
+  `broad money` returns 0. An empty answer reads as "nobody publishes this",
+  and the note it carries — confirm against the provider named — names no
+  provider. A stale index cannot return a stale number, which was the design
+  claim, but it can and does return a false absence.
+- **Search matches every localization, which crosses languages it should not.**
+  The behaviour that finds ISTAT's `Coltivazioni` from `crops` also answers
+  `find_dataflows("OECD", "fiscal")` with 161 flows led by tax datasets,
+  because *fiscal* is French for tax. A query is matched against every language
+  at once with nothing weighting the one it was written in.
+- **Ranking prefers the derived series to the level it derives from.** Name
+  length stands in for "no breakdowns", but short names are disproportionately
+  ratios and deflators, which carry no qualifiers, while a headline level
+  carries "at market prices". So ESTAT `gdp` leads with `GDP deflator`, and
+  `inflation` leads with "Core inflation differential vis-à-vis EA" over
+  "HICP - inflation rate". The position tiebreaker reads the *last* query word,
+  which puts OECD's "Monthly unemployment rates" fourth for `unemployment rate`
+  behind three education breakdowns, since "rate" falls at the end of the name.
+- **Nothing tests that the index reaches an install.** The packaging test reads
+  `catalogue.json.gz` from the source tree, so it passes on a machine where the
+  file was built whether or not it is committed or packaged — the one failure
+  it exists to catch. It should build a wheel and assert against that.
 - **Observations are never cached, so every fetch pays full price.** That is
   deliberate (see Caching) but it means repeated identical queries re-download
   each time. It bites hardest on HKMA: a bound coarser than the endpoint's own
@@ -289,6 +413,26 @@ Defects and constraints in this server, as distinct from properties of the data
   request budget before it knows which vintages carry the key, so asking for five
   can leave fewer readable; those appear under `no_data` rather than being topped
   up, since the alternative is an unbounded number of calls to a slow service.
+- **The cross-provider index is a snapshot.** It is built by a script and
+  shipped, so it goes stale between rebuilds: a flow retired yesterday is still
+  listed, and one added yesterday is not. It is a routing hint and never an
+  answer, so the cost is a wasted call rather than a wrong number, and four
+  live tests sample it against the providers so drift fails the build. Rebuild
+  with `uv run python -m scripts.catalogue`.
+- **Singapore is not in the index.** It publishes no catalogue endpoint, only a
+  search, so there is nothing to index; a cross-provider search says so rather
+  than implying SingStat has nothing. Hong Kong is in it, folded in from the
+  table already in `hkma.py`.
+- **Search ranks on the name and nothing else.** A dataflow carries no
+  popularity, no observation count and no flag saying which is the headline
+  series, so the ordering reads the only signal there is: the shape of the
+  name. It holds where a provider names a flow as a subject plus its
+  breakdowns, which is most of them, and it is a heuristic either way.
+- **Ranking does not apply to the adapters' own search.** Singapore delegates
+  search to SingStat's endpoint and returns its relevance order; Hong Kong
+  matches slugs alphabetically, having no titles to rank. Both come back well
+  under the limit in practice, so neither has met the problem the ordering was
+  for.
 - **HKMA datasets are searchable only by slug.** It publishes no titles through
   the API, so `find_dataflows` matches `hk-interbank-ir-daily` and not the words
   a person would use for it. Its quarterly datasets also report the month the
@@ -406,11 +550,14 @@ fix them.
 
 What is not covered, and why.
 
-- **Asian national sources are mostly gated.** Headline macro for Asia is already
-  covered by the international providers: BIS carries all of JP, CN, IN, KR, SG,
-  HK, TW, TH, MY, ID, PH, VN, PK and BD for policy rates and property prices, and
-  the IMF, World Bank and ILO are comparably broad. What is missing is national
-  detail, and there the constraint bites: e-Stat (Japan), ECOS (Korea), KOSIS and
+- **Asian national sources are mostly gated.** Headline macro for Asia is largely
+  covered by the international providers, though less completely than this used to
+  claim. Measured 2026-09-03: BIS policy rates (`WS_CBPOL`, 49 areas) carry JP, CN,
+  IN, KR, HK, TH, MY, ID and PH, and not SG, TW, VN, PK or BD; residential property
+  prices (`WS_SPP`, 61) add SG and still miss TW, VN, PK and BD. So four of the
+  fourteen Asian economies once listed here are in neither, and Singapore has a
+  property price and no policy rate. The IMF, World Bank and ILO are broader. What
+  is missing is national detail, and there the constraint bites: e-Stat (Japan), ECOS (Korea), KOSIS and
   data.gov.in all require registration, so they cannot be included while the
   project stays keyless. Singapore is in via `SINGSTAT` and Hong Kong via
   `HKMA`. Malaysia's OpenDOSM (`api.data.gov.my`) is keyless and works, but

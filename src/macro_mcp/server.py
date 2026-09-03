@@ -24,6 +24,12 @@ Work through discovery in order: list_providers, find_dataflows, describe_flow,
 search_codes, then fetch_data. Do not guess dimension codes; resolve them with
 search_codes, including country codes, which differ per provider.
 
+When you do not already know which provider carries a subject, ask
+find_dataflows with provider="*" rather than guessing one and reading a zero.
+It answers from a shipped index, names the providers that have it with a
+sample of each, and says which region each covers; confirm the flow you pick
+with a normal find_dataflows against that provider before fetching.
+
 Read "units" on every fetch_data response before using the numbers. It carries
 the scale as well as the measure, so a figure may be in units, thousands or
 millions, and two series in one response can differ. Where a provider states no
@@ -66,7 +72,24 @@ def list_providers() -> dict:
 
 @mcp.tool()
 def find_dataflows(provider: str, search: str = "", limit: int = 40) -> dict:
-    """Search a provider's dataflows by id or name."""
+    """Search a provider's dataflows by id or name.
+
+    Pass provider="*" to search every provider at once and learn which of them
+    carries a subject. That reads a shipped index of the catalogues rather than
+    the live services, so it is fast and may be out of date: it says where to
+    look, and the flow it names has to be confirmed with a real call against
+    the provider it names. A search that matches nothing in one provider says
+    under "elsewhere" which ones it would have matched.
+
+    Every word of the search has to appear, in any order, in one id or name,
+    matched across every language the provider publishes.
+
+    "shown" is ordered closest first, so a headline series outranks the
+    breakdowns of it: searching ILO for "unemployment rate" leads with
+    "Unemployment rate by sex and age" rather than the same series cut by
+    marital status. Prefer the first few hits over reading the list. When
+    "total" exceeds what was shown, "note" says so; add a word to the search
+    before raising limit."""
     return sdmx_api.dataflows(provider, search or None, limit)
 
 

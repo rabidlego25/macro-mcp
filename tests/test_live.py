@@ -201,6 +201,33 @@ def test_repaired_providers_still_list_dataflows(provider, uncached):
     assert out.get("total", 0) > 0, out
 
 
+@pytest.mark.parametrize("provider", ["ILO", "IMF_DATA", "ECB", "BIS"])
+def test_the_shipped_index_still_describes_the_live_catalogue(provider, uncached):
+    """The index is a snapshot and snapshots rot, which the README lists as this
+    project's standing maintenance debt. This turns that into a notification:
+    it samples what the index claims against what the provider serves now.
+
+    Ten flows rather than all of them, because the point is to catch a
+    catalogue that moved, and a provider that renamed every flow will fail on
+    the first ten. Rebuild with `uv run python -m scripts.catalogue`."""
+    claimed = api._catalogue()["providers"][provider]
+    live = api._flows(provider)
+    sample = claimed[:: max(1, len(claimed) // 10)][:10]
+    missing = [ident for ident, *_ in sample if ident not in live]
+    assert not missing, f"{provider} no longer serves {missing}; rebuild the index"
+
+
+def test_the_index_routes_to_a_provider_that_really_has_it(uncached):
+    """The whole contract of the index in one assertion: what it says is a
+    hint, and the live call it points at has to agree. It reported ILO for
+    unemployment where IMF returns nothing, which is the eval it was built
+    for."""
+    routed = api.dataflows("*", "unemployment")
+    best = routed["providers"][0]
+    assert api.dataflows(best["provider"], "unemployment")["total"] > 0
+    assert "ILO" in [p["provider"] for p in routed["providers"]]
+
+
 def test_imf_codes_resolve_through_the_concept_not_the_dimension():
     """IMF's dimensions declare no local representation, so a codelist is only
     reachable via the concept each one identifies. Without that, every dimension

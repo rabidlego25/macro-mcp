@@ -1,5 +1,8 @@
 """SDMX access across the free statistical providers that share ISO 17369."""
 
+import gzip
+import json
+import pathlib
 import re
 from functools import lru_cache
 
@@ -158,19 +161,63 @@ def _label(names: dict) -> str:
     return names.get("en") or next(iter(names.values()), "")
 
 
-def _matches(q: str, ident: str, names: dict) -> bool:
-    """Match across every localization, so an English query finds an Italian
-    dataflow and vice versa.
+# A query word that begins a word, rather than landing inside one. "employment"
+# should prefer "Employment by sex" to "time-related underemployment", but
+# "rate" still has to find "rates", so this anchors the start and not the end.
+_WORD_START = "(?<![0-9a-z])"
 
-    Every word of the query has to appear, in any order, within one name or the
-    id. A query is typed as a phrase and the names are not phrased that way:
-    matching the whole phrase as one substring, "national accounts" found one
-    IMF flow and hid ANEA, whose name is "National Economic Accounts (NEA),
-    Annual Data". Requiring the words rather than the order finds seventeen.
+
+def _rank(q: str, ident: str, names: dict) -> tuple | None:
+    """How closely `q` matches, as a sort key, or None if it does not match.
+
+    Matching is across every localization, so an English query finds an Italian
+    dataflow and vice versa. Every word of the query has to appear, in any
+    order, within one name or the id. A query is typed as a phrase and the
+    names are not phrased that way: matching the whole phrase as one substring,
+    "national accounts" found one IMF flow and hid ANEA, whose name is
+    "National Economic Accounts (NEA), Annual Data". Requiring the words rather
+    than the order finds seventeen.
+
+    Which was the smaller half of the problem. Asked for "unemployment", ILO
+    returns 108 flows and the headline rate was the 66th of them, behind
+    sixty-five breakdowns of itself. A hundred and eight names is not a
+    narrower answer than the catalogue, so what matched has to be ordered:
+
+    - an exact match on the id or a name first, which is somebody typing back
+      something they already knew;
+    - then whether every word begins a word rather than landing inside one;
+    - then how far into the field the last of the query's words appears, so a
+      name that leads with the subject beats one that mentions it in passing.
+      "Unemployment rate by sex and age" beats "SDG indicator 8.5.2:
+      Unemployment rate by sex and age";
+    - then length, because a dataflow name is a subject followed by the
+      breakdowns applied to it, and the headline series is the one carrying
+      none of them. "Unemployment rate by sex and age" is the question somebody
+      asked; "Unemployment rate by sex, age and marital status" is that series
+      cut again.
+
+    The whole key is scored per field and the best field wins, so a flow is
+    ranked on the name that matched rather than on the ones that did not.
     """
     words = q.split()
-    return any(all(w in field for w in words)
-               for field in (ident.lower(), *(n.lower() for n in names.values())))
+    best = None
+    for field in (ident.lower(), *(n.lower() for n in names.values())):
+        at, inside = [], False
+        for w in words:
+            i = field.find(w)
+            if i < 0:
+                break
+            start = re.search(_WORD_START + re.escape(w), field)
+            inside = inside or start is None
+            at.append(i if start is None else start.start())
+        else:
+            key = (field != q, inside, max(at, default=0), len(field))
+            best = key if best is None else min(best, key)
+    return best
+
+
+def _matches(q: str, ident: str, names: dict) -> bool:
+    return _rank(q, ident, names) is not None
 
 
 # Attributes that say what a number is measured in. A bare 634751300000000.0 is
@@ -271,9 +318,103 @@ def providers() -> dict:
     return {g: [_entry(p) for p in ps] for g, ps in GROUPS.items()}
 
 
+# The shipped cross-provider index: ids and names for every catalogue, built by
+# scripts.catalogue. 27,190 flows across 20 providers, 5.3MB of JSON and 0.8MB
+# on disk, against a wheel that already pulls 306MB of pandas.
+CATALOGUE = pathlib.Path(__file__).parent / "catalogue.json.gz"
+
+ANY = "*"
+
+
+@lru_cache(maxsize=1)
+def _regions() -> dict:
+    return {p: g for g, ps in GROUPS.items() for p in ps}
+
+
+def _region(provider: str) -> str:
+    """Which group a provider sits in, carried into a cross-provider answer.
+
+    It is the difference between the two hits a routing question has to choose
+    between: ILO covers 190 countries and ISTAT covers Italy, and nothing else
+    in the response says so.
+    """
+    return _regions().get(provider, "")
+
+
+@lru_cache(maxsize=1)
+def _catalogue() -> dict:
+    """Provider to [[id, *names], ...], read once per process.
+
+    Hong Kong is folded in from `hkma.FLOWS` rather than built into the file,
+    because that table already ships in this package and two copies of it would
+    be two things to keep in step. Singapore cannot be indexed at all: it
+    publishes no catalogue endpoint, only a search, which is the same reason
+    `find_dataflows` demands a search term for it.
+    """
+    try:
+        built = json.loads(gzip.decompress(CATALOGUE.read_bytes()))
+    except (OSError, ValueError):
+        # A checkout with no index built, or a corrupt one. Every caller
+        # degrades to searching one provider at a time, which is where this
+        # started, so it is a missing feature rather than a broken one.
+        return {}
+    index = built["providers"]
+    index["HKMA"] = [[slug, slug.replace("-", " ")] for slug in hkma.FLOWS]
+    return {"built": built["built"], "providers": index}
+
+
+def _everywhere(search: str, limit: int) -> dict:
+    """Which providers carry a subject, from the index rather than the network.
+
+    An eval asked IMF for unemployment, got `total: 0`, and had no way to learn
+    that ILO has 108 flows for it. Answering that live means reading 20
+    catalogues, which is 63s of Eurostat and 51s of ISTAT on a cold cache: not
+    a tool call. Answering it from the index is one decompression.
+
+    Providers are ordered by their best hit rather than by how many they have,
+    because 500 loose matches is a worse answer than one flow named exactly
+    what was asked for.
+    """
+    cat = _catalogue()
+    if not cat:
+        return {"error": "no cross-provider index in this install; build one "
+                         "with `uv run python -m scripts.catalogue`, or search "
+                         "one provider at a time"}
+    q = search.lower()
+    found = []
+    for provider, flows in cat["providers"].items():
+        # The index keeps distinct names and drops their language tags, since
+        # matching reads every localization anyway and the labels were only
+        # ever used to pick an English one. Numbering them back gives _rank the
+        # shape it wants without inventing tags the file does not carry.
+        hits = sorted((r, ident, names[0])
+                      for ident, *names in flows
+                      if (r := _rank(q, ident, dict(enumerate(names)))) is not None)
+        if hits:
+            found.append((hits[0][0], provider, hits))
+    found.sort()
+    return {
+        "search": search,
+        "total": sum(len(h) for _, _, h in found),
+        "providers": [
+            {"provider": p, "region": _region(p), "flows": len(hits),
+             "sample": [{"id": i, "name": n} for _, i, n in hits[:3]]}
+            for _, p, hits in found[:limit]],
+        "index_built": cat["built"],
+        "note": "a shipped index of provider catalogues, not a live read: it "
+                "says where to look, so confirm with find_dataflows against "
+                "the provider named. SINGSTAT is absent, having no catalogue "
+                "endpoint to index.",
+    }
+
+
 def dataflows(provider: str, search: str | None = None, limit: int = 40) -> dict:
+    if provider == ANY:
+        if not search:
+            return {"error": "searching every provider needs a search term"}
+        return _everywhere(search, limit)
     if provider in NATIVE:
-        return NATIVE[provider].dataflows(search, limit)
+        return _or_elsewhere(NATIVE[provider].dataflows(search, limit), search)
     if not _supports(provider, "dataflow"):
         return {"error": f"{provider} serves data but not dataflow metadata; "
                          "supply a known flow id to fetch_data directly"}
@@ -281,9 +422,44 @@ def dataflows(provider: str, search: str | None = None, limit: int = 40) -> dict
     items = [(k, _names(v)) for k, v in flows.items()]
     if search:
         q = search.lower()
-        items = [(k, n) for k, n in items if _matches(q, k, n)]
-    return {"total": len(items),
-            "shown": [{"id": k, "name": _label(n)} for k, n in items[:limit]]}
+        scored = sorted((r, k, n) for k, n in items
+                        if (r := _rank(q, k, n)) is not None)
+        items = [(k, n) for _, k, n in scored]
+    out = {"total": len(items),
+           "shown": [{"id": k, "name": _label(n)} for k, n in items[:limit]]}
+    # What is cut matters more than how many matched. A total of 108 with 40
+    # names under it reads as a catalogue to work through, and the agent that
+    # met one read the names and gave up. Say that these are the closest and
+    # that the rest are reachable, so the next move is a word rather than a
+    # guess.
+    if len(items) > limit:
+        out["note"] = (
+            f"closest {limit} of {len(items)}; add a word to the search to "
+            "narrow it, or raise limit to see the rest"
+            if search else
+            f"first {limit} of {len(items)}, unordered; pass a search term")
+    return _or_elsewhere(out, search)
+
+
+def _or_elsewhere(out: dict, search: str | None) -> dict:
+    """Name the providers that do carry it, when this one does not.
+
+    A zero is the least useful thing a search can return, and it was returned
+    to an eval that then concluded nothing more. `total: 0` from IMF for
+    "unemployment" is true and it is not the answer: ILO has 108. The index is
+    already in memory, so saying so costs nothing and no request.
+    """
+    if not search or out.get("total") or "error" in out:
+        return out
+    elsewhere = _everywhere(search, limit=4)
+    if not elsewhere.get("providers"):
+        return out
+    out["elsewhere"] = [{"provider": p["provider"], "region": p["region"],
+                         "flows": p["flows"]} for p in elsewhere["providers"]]
+    out["note"] = (f"no match here; {elsewhere['total']} across other "
+                   "providers, listed under elsewhere. Search one of them, or "
+                   'pass provider="*" for the whole list.')
+    return out
 
 
 def describe_flow(provider: str, flow: str, code_sample: int = 8) -> dict:
