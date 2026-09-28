@@ -1,0 +1,50 @@
+{
+ "checked": "2026-09-28 07:24 UTC",
+ "providers": {
+  "ESTAT": {
+   "state": "ok",
+   "note": "answered in 0.5s",
+   "seconds": 0.5
+  },
+  "OECD": {
+   "state": "down",
+   "note": "structure request: a bot check is blocking browsers",
+   "seconds": 0.3
+  },
+  "ECB": {
+   "state": "ok",
+   "note": "answered in 1.1s",
+   "seconds": 1.1
+  },
+  "BIS": {
+   "state": "ok",
+   "note": "answered in 0.7s",
+   "seconds": 0.7
+  },
+  "IMF_DATA": {
+   "state": "ok",
+   "note": "answered in 2.1s",
+   "seconds": 2.1
+  },
+  "ABS": {
+   "state": "ok",
+   "note": "answered in 1.1s",
+   "seconds": 1.1
+  },
+  "ILO": {
+   "state": "ok",
+   "note": "answered in 1.5s",
+   "seconds": 1.5
+  },
+  "NB": {
+   "state": "ok",
+   "note": "answered in 0.5s",
+   "seconds": 0.5
+  },
+  "SPC": {
+   "state": "ok",
+   "note": "answered in 2.9s",
+   "seconds": 2.9
+  }
+ }
+}
