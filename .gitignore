@@ -21,3 +21,8 @@ wheels/
 /*.xml
 /*.html
 /*.txt
+
+# Written by scripts.web_status at deploy time, for the page to read. Checked
+# daily and different every day, so committing it would be a daily commit that
+# says nothing.
+/web/status.json

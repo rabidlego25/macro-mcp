@@ -1,0 +1,68 @@
+# Daily: rebuild the dataset index, republish the page, and check that every
+# provider still answers, both a server (test_live) and a browser (test_web).
+#
+# The index changes over weeks, so most days the rebuild finds nothing and
+# commits nothing: scripts.catalogue leaves the file byte for byte as it was
+# when no catalogue moved, and keeps yesterday's entries for any provider that
+# is down or suddenly much smaller.
+name: refresh
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run python -m scripts.catalogue
+        env:
+          MACRO_MCP_NO_CACHE: "1"
+      - run: uv run python -m scripts.web_catalogue
+      - name: Commit the index if it changed
+        run: |
+          git add src/macro_mcp/catalogue.json.gz web/catalogue.json web/changes.json
+          if git diff --cached --quiet; then
+            echo "No catalogue changed."
+          else
+            git -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit -m "Refresh the dataset index"
+            git push
+          fi
+
+  publish:
+    needs: index
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  live:
+    # Red here means a provider moved or stopped answering. It does not stop
+    # the publish: the page already says which providers are down.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest -q -rs -m "not revisable" tests/test_live.py tests/test_web.py
+        env:
+          MACRO_MCP_LIVE: "1"

@@ -66,18 +66,54 @@ def read(provider: str) -> tuple[str, list, str]:
         return provider, [], f"{type(e).__name__}: {e}"[:100]
 
 
+# A rebuild that finds a provider down, or finds far fewer flows than last
+# time, keeps the previous entries for it. It runs unattended on a schedule,
+# and one bad morning at Eurostat would otherwise drop 8,000 flows from search
+# until someone noticed.
+SHRINK = 0.8
+
+
+def previous() -> dict:
+    try:
+        return json.loads(gzip.decompress(OUT.read_bytes()))
+    except (OSError, ValueError):
+        return {}
+
+
+def guarded(rows: list, before: dict) -> tuple[dict, list]:
+    index, notes = {}, []
+    for p, flows, note in rows:
+        old = before.get(p, [])
+        if old and len(flows) < SHRINK * len(old):
+            index[p] = old
+            notes.append((p, len(old), f"kept {len(old)} from the previous build; "
+                                       f"this one found {len(flows)} ({note})"))
+        else:
+            if flows:
+                index[p] = flows
+            notes.append((p, len(flows), note))
+    return index, notes
+
+
 def main() -> None:
     providers = [p for ps in api.GROUPS.values() for p in ps]
     with ThreadPoolExecutor(WORKERS) as pool:
         rows = list(pool.map(read, providers))
 
-    index = {p: flows for p, flows, _ in rows if flows}
-    payload = {"built": time.strftime("%Y-%m-%d"), "providers": index}
+    last = previous()
+    index, notes = guarded(rows, last.get("providers", {}))
+    # The date moves only when the catalogue does, so an unchanged rebuild
+    # leaves the file byte for byte as it was and a scheduled job commits
+    # nothing. gzip stamps the time too unless told not to.
+    same = index == last.get("providers")
+    payload = {"built": last["built"] if same else time.strftime("%Y-%m-%d"), "providers": index}
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-    OUT.write_bytes(gzip.compress(blob, 9))
+    OUT.write_bytes(gzip.compress(blob, 9, mtime=0))
 
-    for p, flows, note in rows:
-        print(f"{p:<14} {len(flows):>6}  {note}", file=sys.stderr)
+    for p, n, note in notes:
+        print(f"{p:<14} {n:>6}  {note}", file=sys.stderr)
+    if same:
+        print("\nno catalogue changed since the last build", file=sys.stderr)
     print(f"\n{sum(len(f) for f in index.values())} flows from {len(index)} "
           f"providers\n{len(blob) / 1e6:.1f}MB raw, {OUT.stat().st_size / 1e6:.1f}MB "
           f"gzipped -> {OUT}", file=sys.stderr)

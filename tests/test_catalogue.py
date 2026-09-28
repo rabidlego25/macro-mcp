@@ -117,3 +117,24 @@ def test_the_index_is_actually_shipped():
     for provider, flows in built["providers"].items():
         assert provider in api.GROUPS[api._region(provider)]
         assert all(len(f) >= 2 and f[0] and f[1] for f in flows[:50]), provider
+
+
+def test_a_rebuild_keeps_a_provider_that_failed_or_shrank():
+    """The rebuild runs daily and unattended. A provider that is down, or that
+    returns far fewer flows than last time, keeps its previous entries rather
+    than vanishing from search until somebody notices."""
+    import pathlib
+    import sys
+    sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+    from scripts.catalogue import guarded
+
+    before = {"ESTAT": [["A", "a"]] * 10, "BIS": [["X", "x"]] * 10, "ECB": [["E", "e"]]}
+    rows = [("ESTAT", [], "ReadTimeout"),          # down
+            ("BIS", [["X", "x"]] * 5, "5 flows"),  # halved
+            ("ECB", [["E", "e"], ["F", "f"]], "2 flows"),  # grew
+            ("NB", [["N", "n"]], "1 flow")]        # new
+    index, notes = guarded(rows, before)
+    assert index["ESTAT"] == before["ESTAT"]
+    assert index["BIS"] == before["BIS"]
+    assert len(index["ECB"]) == 2 and index["NB"] == [["N", "n"]]
+    assert any("kept 10" in n for _, _, n in notes)
