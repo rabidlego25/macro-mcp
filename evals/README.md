@@ -228,6 +228,8 @@ second pass is appended to the same log.
 | 4. Substring search | Fixed | `"national accounts"` returns 11 flows including `ANEA`, was 1. |
 | 7. Undocumented query shapes | Fixed | `+` and the wildcard are in the `fetch_data` description and the instructions. |
 | 8. `direct_children` truncates silently | Fixed | Returns `direct_children_total`, and says so when a page was clipped. |
+| 5. Search does not narrow | Fixed | ILO's headline rate went from 66th of 108 to 1st for "unemployment rate". `IMF_DATA` still has no unemployment flow but now names the four providers that do. |
+| 9. Vintages crowd out their own flow | Partly | IMF's current `CPI` now leads its four 2026 vintages, was 5th of 10. `find_dataflows` still does not point at `list_vintages`. |
 
 Entity search turned out to be diagnosed wrongly the first time. Ranking was
 treated as the problem; the filter was. `filter[fulltext]` matches addresses,
@@ -250,13 +252,87 @@ first, because GLEIF records it under an exact alias of that name, and
 the group parent, so the remaining cases need the ownership graph. Both are far
 better than before, and neither is right.
 
+Search was ordered rather than narrowed, and that was the cheaper half. Nothing
+was dropped: 108 flows still match "unemployment" and the total still says so.
+What changed is which forty are shown and in what order. A dataflow name is a
+subject followed by the breakdowns applied to it, so the flow carrying none of
+them is the one somebody asked for, and four things put it first: an exact
+match on a name or id, then whether the query's words begin words rather than
+landing inside them, then how far into the name the last of them appears, then
+length. "Unemployment rate by sex and age" now leads; "Unemployment rate by
+sex, age and marital status" is that series cut again and follows it; "LU2:
+Combined rate of time-related underemployment and unemployment" is a different
+series that names it in passing and comes last.
+
+The ordering was worth more than it was built for. IMF's `CPI` now outranks the
+four monthly vintages of itself, which was finding 9, and it cost nothing: a
+vintage's name is the current flow's name with a date appended, so it is longer
+by construction.
+
+It also generalises less than that reads. An adversarial review on 2026-09-03
+went looking for counterexamples and found them in the first catalogue it tried.
+Length stands in for "no breakdowns", but short names are disproportionately
+*derived* series — a ratio or a deflator carries no qualifiers, while the level
+it derives from carries "at market prices" — so ESTAT `gdp` leads with `GDP
+deflator`, and `inflation` leads with "Core inflation differential vis-à-vis EA"
+over "HICP - inflation rate". And the position tiebreaker reads the last query
+word rather than the first, which drops OECD's "Monthly unemployment rates" to
+fourth for `unemployment rate`, behind three education breakdowns, because
+"rate" happens to fall at the end of the name. The claim above is true of ILO
+and correctly scoped; it is not a general property of the heuristic, and the
+README lists both failures under its own defects now.
+
+Both questions that died here were re-run. Question 20 is answered end to end:
+`find_dataflows("ILO", "unemployment rate")` leads with
+`DF_UNE_DEAP_SEX_AGE_RT`, and four more calls reach a US unemployment rate of
+4.15% for 2026-Q2, in percent, with every code in the response named.
+
+Question 7 is still partial, and usefully so, because what blocks it now is not
+the search. It asked for the euro area, and ILO's `REF_AREA` has European Union
+27 and 28, seven European groupings and no euro area, so the question as put
+needs ECB or Eurostat. `X92` then 404s on the flow anyway. Both passes also
+walked into finding 6: `AGE_AGGREGATE_TOTAL` is the obvious guess and the real
+code is `AGE_AGGREGATE_YGE15`, and nothing but a 404 says so. Three obstacles
+stood in front of that question and the ranking removed one of them.
+
+Then the other half, which was the one that actually stopped questions. Ordering
+a search only helps once the right provider has been picked, and nothing here
+helped pick one: `find_dataflows("IMF_DATA", "unemployment")` answers `total: 0`,
+which is true, and ILO has 108. Question 18 asked outright which providers cover
+Indian inflation and had no tool that could answer it.
+
+`provider="*"` now searches every catalogue and answers with providers rather
+than flows, each with its region, its count and its three best hits. A zero from
+a single provider gets the same list under `elsewhere` without being asked. It
+cannot be a live fan-out — twenty catalogues is 63s of Eurostat and 51s of ISTAT
+cold — so `scripts/catalogue.py` reads them once and ships 27,190 flows in 767KB,
+which loads in 25ms and searches in 45ms.
+
+That makes it a snapshot, and the design turns on its never being an answer: it
+says where to look, what it names is confirmed with a real call, and the response
+carries the date it was built. A stale index misroutes and cannot return a stale
+number. Four live tests sample it against the providers so drift fails the build.
+
+Which answers the wrong risk. The same review pointed out that the failure mode
+is not a stale hit but a false absence: `long-term interest rate` comes back
+`total: 0` although OECD publishes `IRLT`, `labor force` comes back 0 against
+352 for `labour force`, and an empty answer reads as "nobody has this" while
+carrying a note that tells the agent to confirm against a provider it never
+names. Matching is literal — no stemming, no synonyms, no spelling
+normalisation — so the router is confidently wrong on three of the series this
+project is most about. That is open, and listed under the README's defects.
+
+Question 18 now runs end to end: one `provider="*"` call names eight providers
+carrying a consumer price index, `IMF_DATA` confirms live with the same ten flows
+and `CPI` first, and `search_codes` resolves India to `IND`.
+
 Not addressed, and still true:
 
-- **5.** A search returning 108 ILO flows has not narrowed anything.
 - **6.** No tool exposes the series that exist, though the mechanism now
   works: `detail=nodata` returns the keys, and Bundesbank rejects
   `serieskeysonly` while accepting it.
-- **9.** Vintages crowd out the flow they are vintages of.
+- **9.** `find_dataflows` still does not point at `list_vintages`, so an agent
+  meeting five vintages of one flow has to know the tool exists.
 - **10.** `fx_period_rate` states less about provenance than `fx_spot`.
 - **11.** A provider outage is a raw HTTP string.
 - **12.** Aggregates in a codelist are unmarked.

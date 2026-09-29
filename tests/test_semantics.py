@@ -49,6 +49,76 @@ def test_search_matches_across_localizations():
     assert not api._matches("unemployment", "101_1015", names)
 
 
+# ILO's real answer to "unemployment", trimmed to the shape of the problem: one
+# headline rate, one headline count, the same rate cut two more ways, a youth
+# variant, an SDG restatement, and two flows that mention unemployment only
+# because they are about something adjacent to it.
+ILO_UNEMPLOYMENT = {
+    "DF_UNE_DEAP_SEX_AGE_RT": "Unemployment rate by sex and age",
+    "DF_UNE_TUNE_SEX_AGE_NB": "Unemployment by sex and age",
+    "DF_UNE_DEAP_SEX_AGE_MTS_RT": "Unemployment rate by sex, age and marital status",
+    "DF_UNE_DEAP_SEX_AGE_EDU_RT": "Unemployment rate by sex, age and education",
+    "DF_UNE_3EAP_SEX_AGE_EDU_RT": "Youth unemployment rate by sex, age and education",
+    "DF_SDG_0852_SEX_AGE_RT": "SDG indicator 8.5.2: Unemployment rate by sex and age",
+    "DF_LUU_XLU2_SEX_AGE_RT": "LU2: Combined rate of time-related underemployment "
+                              "and unemployment by sex and age",
+    "DF_UNE_3WAP_SEX_AGE_EDU_RT": "Youth unemployment-to-population ratio by sex, "
+                                  "age and education",
+}
+
+
+def order(q: str, flows: dict) -> list[str]:
+    ranked = sorted((r, k) for k, n in flows.items()
+                    if (r := api._rank(q, k, {"en": n})) is not None)
+    return [k for _, k in ranked]
+
+
+def test_the_headline_series_outranks_the_breakdowns_of_it():
+    """The eval asked ILO for "unemployment", got 108 flows, and the headline
+    rate was the 66th of them. A name is a subject plus the breakdowns applied
+    to it, so the one carrying none of them is the one that was asked for."""
+    assert order("unemployment rate", ILO_UNEMPLOYMENT)[0] == "DF_UNE_DEAP_SEX_AGE_RT"
+    ranked = order("unemployment", ILO_UNEMPLOYMENT)
+    assert set(ranked[:2]) == {"DF_UNE_DEAP_SEX_AGE_RT", "DF_UNE_TUNE_SEX_AGE_NB"}
+
+
+def test_a_name_that_leads_with_the_subject_beats_one_that_mentions_it():
+    """Both carry the words. "SDG indicator 8.5.2: Unemployment rate" is the
+    same series restated, and LU2 is a different one that happens to name it."""
+    ranked = order("unemployment rate", ILO_UNEMPLOYMENT)
+    assert ranked.index("DF_UNE_DEAP_SEX_AGE_RT") < ranked.index("DF_SDG_0852_SEX_AGE_RT")
+    assert ranked[-1] == "DF_LUU_XLU2_SEX_AGE_RT"
+
+
+def test_a_word_that_begins_a_word_beats_one_buried_inside_one():
+    """"employment" is in "underemployment" as a substring and not as a word.
+    Both still match, since a search that silently dropped hits is the failure
+    this replaced; the buried one just ranks below."""
+    ranked = order("employment", ILO_UNEMPLOYMENT)
+    assert "DF_LUU_XLU2_SEX_AGE_RT" in ranked
+    assert ranked[-1] == "DF_LUU_XLU2_SEX_AGE_RT"
+
+
+def test_a_plural_still_matches_the_singular_asked_for():
+    """The word-start test anchors the front only. Anchoring the end too would
+    have cost BIS's "Central bank policy rates" its one hit for "policy rate"."""
+    assert api._rank("policy rate", "WS_CBPOL", {"en": "Central bank policy rates"})
+
+
+def test_an_exact_name_leads_however_long_the_rest_are():
+    names = {"101_1015": "Crops", "DF_TST": "Crops in Italy"}
+    assert order("crops", names)[0] == "101_1015"
+
+
+def test_ranking_does_not_narrow_what_matches():
+    """Ordering is the fix; dropping hits would be a different bug. Every flow
+    the predicate accepts still has a rank, and nothing else does."""
+    for q in ("unemployment", "unemployment rate", "employment", "nonsense"):
+        matched = {k for k, n in ILO_UNEMPLOYMENT.items()
+                   if api._matches(q, k, {"en": n})}
+        assert set(order(q, ILO_UNEMPLOYMENT)) == matched
+
+
 def test_bbk_dataflow_fixture_contains_a_null_english_name():
     """Pins the real-world case the fallback exists for."""
     flows = parse(bbk._repair(raw("bbk_dataflow.xml"))).dataflow

@@ -1,0 +1,47 @@
+# Publish web/ to GitHub Pages. Runs on a push to main that touches the page,
+# by hand, and from refresh.yml after it rebuilds the index.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "scripts/web_status.py", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Called from refresh.yml, the index it just committed is on main,
+          # not at the commit that started the run.
+          ref: main
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      # Which providers answer a browser today, for the page to show. A
+      # provider being down is what this reports, not a reason to stop.
+      - run: uv run python -m scripts.web_status
+        continue-on-error: true
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

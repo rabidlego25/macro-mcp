@@ -15,7 +15,7 @@ from macro_mcp import sdmx_api as api
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 MEMOISED = (cache.session, api._client, api._flows, api._dsd, api._unit_labels,
-            api._dim_labels,
+            api._dim_labels, api._catalogue,
             bundesbank.flows, bundesbank.dsd, bundesbank.codelist)
 
 
